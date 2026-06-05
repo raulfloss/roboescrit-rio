@@ -8,11 +8,12 @@ BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PASTA_CERT = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
 HIST_FILE  = os.path.join(BASE_DIR, "historico.json")
 
-_lock     = threading.Lock()
-fila      = []
-job_atual = None
-historico = []
-_logs     = {}
+_lock      = threading.Lock()
+fila       = []
+job_atual  = None
+historico  = []
+_logs      = {}
+_proc_atual = None
 
 # ── persistência ─────────────────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ historico = _carregar()
 # ── execução do robô ─────────────────────────────────────────────────────────
 
 def _rodar_job(job):
-    global job_atual
+    global job_atual, _proc_atual
     jid       = job["id"]
     _logs[jid] = []
     inicio_ts  = time.time()
@@ -53,6 +54,11 @@ def _rodar_job(job):
     job["inicio"] = datetime.now().strftime("%d/%m %H:%M")
     job["status"] = "rodando"
 
+    cnpj_atual     = ""
+    erros_detalhe  = []
+    em_relatorio   = False
+    relatorio_linhas = []
+
     try:
         proc = subprocess.Popen(
             args,
@@ -60,11 +66,26 @@ def _rodar_job(job):
             text=True, encoding="utf-8", errors="replace",
             env=env, cwd=BASE_DIR,
         )
+        _proc_atual = proc
         for linha in proc.stdout:
             linha = linha.rstrip()
             if not linha:
                 continue
             _logs[jid].append(linha)
+
+            # Rastreia CNPJ atual: "[1/141] CNPJ: 12345678000195 | ..."
+            if linha.startswith("[") and "CNPJ:" in linha:
+                try:
+                    cnpj_atual = linha.split("CNPJ:")[1].split("|")[0].strip()
+                except Exception:
+                    pass
+
+            # Captura bloco do relatório final
+            if "--- Processamento finalizado ---" in linha:
+                em_relatorio = True
+            if em_relatorio:
+                relatorio_linhas.append(linha)
+
             if "CNPJs selecionados" in linha:
                 try:
                     job["total"] = int(linha.split("|")[1].strip().split()[0])
@@ -72,13 +93,39 @@ def _rodar_job(job):
                     pass
             if "Certidão" in linha and "salva:" in linha:
                 job["sucesso"] = job.get("sucesso", 0) + 1
-            if "TIMEOUT:" in linha or "ERRO:" in linha:
+            if "TIMEOUT:" in linha:
                 job["erros"] = job.get("erros", 0) + 1
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Timeout — portal demorou demais"})
+            elif "ERRO:" in linha:
+                job["erros"] = job.get("erros", 0) + 1
+                motivo = linha.split("ERRO:", 1)[-1].strip()[:120]
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": f"Erro: {motivo}"})
+            elif "não encontrado na base" in linha.lower() or "nao encontrado" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ não encontrado no portal"})
+            elif "com débitos" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ com débitos"})
+            elif "sem portal" in linha.lower() or "não suportado" in linha.lower() or "nao suportado" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Cidade sem portal cadastrado"})
+            elif "captcha falhou" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Captcha não resolvido"})
+
         proc.wait()
-        job["status"] = "concluido"
+        if job["status"] != "cancelado":
+            job["status"] = "concluido"
     except Exception as e:
         _logs[jid].append(f"  ERRO INTERNO: {e}")
         job["status"] = "erro"
+    finally:
+        _proc_atual = None
+
+    job["erros_detalhe"]  = erros_detalhe
+    job["relatorio_txt"]  = "\n".join(relatorio_linhas)
 
     job["fim"] = datetime.now().strftime("%d/%m %H:%M")
 
@@ -161,6 +208,18 @@ def api_iniciar():
         fila.append(job)
         _verificar_fila()
     return jsonify({"ok": True, "job_id": job["id"]})
+
+@app.route("/api/parar", methods=["POST"])
+def api_parar():
+    global _proc_atual, job_atual
+    with _lock:
+        if _proc_atual:
+            _proc_atual.kill()
+            _proc_atual = None
+        if job_atual:
+            job_atual["status"] = "cancelado"
+            _logs.get(job_atual["id"], []).append("  *** Processamento cancelado pelo usuário. ***")
+    return jsonify({"ok": True})
 
 @app.route("/api/download/<jid>")
 def api_download(jid):

@@ -47,14 +47,55 @@ tr:last-child td{border-bottom:none}
 .empty{color:#bbb;font-size:.84rem;text-align:center;padding:14px 0}
 .btn-dl{padding:4px 12px;background:#ede9fe;color:#4f46e5;border:none;border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
 .btn-dl:hover{background:#ddd6fe}
+.btn-parar{padding:6px 16px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;font-size:.82rem;font-weight:700;cursor:pointer}
+.btn-parar:hover{background:#fecaca}
 .right-col{display:flex;flex-direction:column;gap:18px}
 .job-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
 .job-user{font-weight:700;font-size:.95rem}
 .job-mode{color:#666;font-size:.82rem;margin-top:2px}
 @media(max-width:720px){.wrap{grid-template-columns:1fr}}
+.btn-rel{padding:4px 12px;background:#fef3c7;color:#92400e;border:none;border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer}
+.btn-rel:hover{background:#fde68a}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:#fff;border-radius:14px;padding:28px;max-width:700px;width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,.2)}
+.modal h2{font-size:1.05rem;margin-bottom:16px;color:#1a1a2e}
+.modal-close{float:right;background:none;border:none;font-size:1.4rem;cursor:pointer;color:#888;margin-top:-4px}
+.rel-resumo{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:18px}
+.rel-stat{background:#f8fafc;border-radius:8px;padding:10px 18px;text-align:center}
+.rel-stat strong{display:block;font-size:1.3rem}
+.rel-stat span{font-size:.75rem;color:#888}
+.rel-table{width:100%;border-collapse:collapse;font-size:.83rem;margin-top:8px}
+.rel-table th{text-align:left;padding:7px 10px;border-bottom:2px solid #e5e7eb;color:#777;font-size:.75rem;text-transform:uppercase}
+.rel-table td{padding:8px 10px;border-bottom:1px solid #f3f3f3}
+.rel-table tr:last-child td{border-bottom:none}
+.tag-debito{color:#b45309;font-weight:600}
+.tag-erro{color:#dc2626;font-weight:600}
+.tag-naoenc{color:#6b7280;font-weight:600}
+#aviso-download{display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#065f46;color:#fff;padding:16px 24px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:999;display:none;align-items:center;gap:16px;font-size:.9rem;max-width:90vw}
+#aviso-download strong{font-size:1rem}
+#aviso-download a{background:#fff;color:#065f46;padding:7px 16px;border-radius:8px;font-weight:700;text-decoration:none;white-space:nowrap}
+#aviso-download button{background:transparent;border:none;color:#fff;font-size:1.2rem;cursor:pointer;opacity:.7;margin-left:8px}
 </style>
 </head>
 <body>
+
+<div class="modal-overlay" id="modal-rel" onclick="fecharModal(event)">
+  <div class="modal">
+    <button class="modal-close" onclick="document.getElementById('modal-rel').classList.remove('open')">✕</button>
+    <h2>📋 Relatório do Processamento</h2>
+    <div id="modal-corpo"></div>
+  </div>
+</div>
+
+<div id="aviso-download">
+  <div>
+    <strong>✅ Processamento concluído!</strong><br>
+    <span style="opacity:.85;font-size:.82rem">Baixe agora — os arquivos são apagados se o servidor reiniciar.</span>
+  </div>
+  <a id="aviso-link" href="#">⬇ Baixar PDFs</a>
+  <button onclick="fecharAviso()">✕</button>
+</div>
 
 <header>
   <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
@@ -177,9 +218,57 @@ async function buscarLog(jid) {
       clearInterval(logTimer);
       logTimer = null;
       logJobId = null;
-      atualizarStatus();
+      await atualizarStatus();
+      mostrarAviso(jid);
     }
   } catch(e) {}
+}
+
+function mostrarAviso(jid) {
+  const aviso = document.getElementById("aviso-download");
+  const link  = document.getElementById("aviso-link");
+  link.href = `/api/download/${jid}`;
+  aviso.style.display = "flex";
+}
+
+function fecharAviso() {
+  document.getElementById("aviso-download").style.display = "none";
+}
+
+function fecharModal(e) {
+  if (e.target.id === "modal-rel") document.getElementById("modal-rel").classList.remove("open");
+}
+
+function tagMotivo(motivo) {
+  if (motivo.includes("débitos"))  return `<span class="tag-debito">${motivo}</span>`;
+  if (motivo.includes("não encontrado") || motivo.includes("Não encontrado")) return `<span class="tag-naoenc">${motivo}</span>`;
+  return `<span class="tag-erro">${motivo}</span>`;
+}
+
+function abrirRelatorio(j) {
+  const erros = j.erros_detalhe || [];
+  const total  = j.total  || 0;
+  const ok     = j.sucesso || 0;
+  const nok    = erros.length;
+
+  let html = `
+    <div class="rel-resumo">
+      <div class="rel-stat"><strong style="color:#059669">${ok}</strong><span>Certidões geradas</span></div>
+      <div class="rel-stat"><strong style="color:#dc2626">${nok}</strong><span>Com problema</span></div>
+      <div class="rel-stat"><strong>${total}</strong><span>Total processado</span></div>
+    </div>`;
+
+  if (erros.length) {
+    html += `<table class="rel-table">
+      <thead><tr><th>CNPJ</th><th>Motivo</th></tr></thead>
+      <tbody>${erros.map(e=>`<tr><td><code>${e.cnpj}</code></td><td>${tagMotivo(e.motivo)}</td></tr>`).join("")}</tbody>
+    </table>`;
+  } else {
+    html += `<p style="color:#059669;font-weight:600;text-align:center;padding:16px">✅ Nenhum erro registrado!</p>`;
+  }
+
+  document.getElementById("modal-corpo").innerHTML = html;
+  document.getElementById("modal-rel").classList.add("open");
 }
 
 function appendLog(linhas) {
@@ -195,6 +284,15 @@ function appendLog(linhas) {
   });
   box.appendChild(frag);
   if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// ── parar ─────────────────────────────────────────────────────────────────────
+async function pararJob() {
+  if (!confirm("Deseja parar o processamento em andamento?")) return;
+  try {
+    await fetch("/api/parar", { method: "POST" });
+    atualizarStatus();
+  } catch(e) { alert("Erro ao tentar parar."); }
 }
 
 // ── iniciar ───────────────────────────────────────────────────────────────────
@@ -228,7 +326,10 @@ function renderAtual(job) {
   el.innerHTML = `
     <div class="job-header">
       <div><div class="job-user">${job.usuario}</div><div class="job-mode">${MODO_LABEL[job.modo]||job.modo}${job.cnpj ? " — " + job.cnpj : ""}</div></div>
-      ${badge(job.status)}
+      <div style="display:flex;align-items:center;gap:10px">
+        ${badge(job.status)}
+        ${job.status === "rodando" ? '<button class="btn-parar" onclick="pararJob()">⏹ Parar</button>' : ""}
+      </div>
     </div>
     ${job.total > 0 ? `
     <div class="stat-row">
@@ -264,7 +365,10 @@ function renderHistorico(hist) {
       <td>${badge(j.status)}</td>
       <td style="color:#059669;font-weight:700">${j.sucesso||0}/${j.total||0}</td>
       <td style="color:${j.erros>0?"#dc2626":"#888"};font-weight:700">${j.erros||0}</td>
-      <td>${j.pdfs&&j.pdfs.length?`<a class="btn-dl" href="/api/download/${j.id}">⬇ ${j.pdfs.length} PDFs</a>`:"—"}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        ${j.pdfs&&j.pdfs.length?`<a class="btn-dl" href="/api/download/${j.id}">⬇ ${j.pdfs.length} PDFs</a>`:""}
+        ${(j.erros_detalhe&&j.erros_detalhe.length)||j.relatorio_txt?`<button class="btn-rel" onclick='abrirRelatorio(${JSON.stringify(j)})'>📋 Relatório</button>`:"—"}
+      </td>
     </tr>`).join("")}</tbody>
   </table>`;
 }
