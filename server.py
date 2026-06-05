@@ -5,6 +5,7 @@ from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "nortao_robo_certidoes_chave_secreta_2026"
+app.config["SESSION_PERMANENT"] = False  # sessão expira ao fechar o navegador
 
 SENHA = "nortaocontabilidade2026"
 
@@ -15,6 +16,13 @@ def login_required(f):
             return redirect(url_for("login"))
         return f(*args, **kwargs)
     return decorated
+
+@app.after_request
+def sem_cache(response):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"]        = "no-cache"
+    response.headers["Expires"]       = "0"
+    return response
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PASTA_CERT = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
