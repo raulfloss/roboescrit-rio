@@ -40,7 +40,9 @@ COLUNA_NOME   = "Razão Social"
 
 WEB_MODE = os.environ.get("ROBO_WEB") == "1"
 
-PASTA_DOWNLOADS  = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
+_JOB_ID = os.environ.get("ROBO_JOB_ID", "")
+_BASE_CERT = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
+PASTA_DOWNLOADS  = os.path.join(_BASE_CERT, _JOB_ID) if _JOB_ID else _BASE_CERT
 PASTA_NEGATIVAS  = os.path.join(PASTA_DOWNLOADS, "negativas")
 PASTA_POSITIVAS  = os.path.join(PASTA_DOWNLOADS, "positivas")
 os.makedirs(PASTA_NEGATIVAS, exist_ok=True)
@@ -633,9 +635,14 @@ with sync_playwright() as p:
         cnpj   = reg[COLUNA_CNPJ]
         nome   = str(reg.get(COLUNA_NOME_REAL, "")).strip() if COLUNA_NOME_REAL else ""
         cidade, estado = extrair_cidade_estado(reg.get(COLUNA_CIDADE, ""))
-        caminho      = os.path.join(PASTA_DOWNLOADS,  f"{cnpj}.pdf")  # temp
-        caminho_neg  = os.path.join(PASTA_NEGATIVAS,  f"{cnpj}.pdf")
-        caminho_pos  = os.path.join(PASTA_POSITIVAS,  f"{cnpj}.pdf")
+
+        cidade_pasta = re.sub(r'[\\/*?:"<>|]', "", cidade)  # remove caracteres inválidos
+        os.makedirs(os.path.join(PASTA_NEGATIVAS, cidade_pasta), exist_ok=True)
+        os.makedirs(os.path.join(PASTA_POSITIVAS, cidade_pasta), exist_ok=True)
+
+        caminho      = os.path.join(PASTA_DOWNLOADS, f"{cnpj}.pdf")  # temp
+        caminho_neg  = os.path.join(PASTA_NEGATIVAS, cidade_pasta, f"{cnpj}.pdf")
+        caminho_pos  = os.path.join(PASTA_POSITIVAS, cidade_pasta, f"{cnpj}.pdf")
 
         nome_exibir = f" | {nome}" if nome else ""
         print(f"\n[{i}/{len(registros)}] CNPJ: {cnpj}{nome_exibir} | Cidade: {cidade} | Estado: {estado}")
@@ -679,7 +686,7 @@ with sync_playwright() as p:
                 tipo    = detectar_tipo_certidao(caminho)
                 destino = caminho_neg if tipo == "negativa" else caminho_pos
                 shutil.move(caminho, destino)
-                print(f"  Certidão {tipo} salva: {destino}")
+                print(f"  Certidão {tipo} salva: {destino} ({cidade_pasta})")
             elif resultado == "nao_encontrado":
                 print(f"  CNPJ não encontrado na base, pulando...")
                 nao_encontrados.append(cnpj)

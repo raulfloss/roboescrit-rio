@@ -1,8 +1,20 @@
-from flask import Flask, render_template, request, jsonify, send_file, abort
+from flask import Flask, render_template, request, jsonify, send_file, abort, session, redirect, url_for
+from functools import wraps
 import subprocess, threading, json, os, sys, uuid, io, zipfile, re, time, socket
 from datetime import datetime
 
 app = Flask(__name__)
+app.secret_key = "nortao_robo_certidoes_chave_secreta_2026"
+
+SENHA = "nortaocontabilidade2026"
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("autenticado"):
+            return redirect(url_for("login"))
+        return f(*args, **kwargs)
+    return decorated
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PASTA_CERT = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
@@ -44,6 +56,7 @@ def _rodar_job(job):
     env["ROBO_HEADLESS"]    = "1"
     env["ROBO_WEB"]         = "1"
     env["PYTHONUNBUFFERED"] = "1"
+    env["ROBO_JOB_ID"]      = jid
 
     args = [sys.executable, os.path.join(BASE_DIR, "robo.py")]
     if job["modo"] == "cnpj":
@@ -129,16 +142,19 @@ def _rodar_job(job):
 
     job["fim"] = datetime.now().strftime("%d/%m %H:%M")
 
+    pasta_job = os.path.join(PASTA_CERT, jid)
     pdfs = []
     for sub in ("negativas", "positivas"):
-        pasta = os.path.join(PASTA_CERT, sub)
-        if os.path.exists(pasta):
-            for arq in os.listdir(pasta):
-                if arq.endswith(".pdf"):
-                    caminho = os.path.join(pasta, arq)
-                    if os.path.getmtime(caminho) >= inicio_ts:
-                        pdfs.append(f"{sub}/{arq}")
-    job["pdfs"] = pdfs
+        pasta_sub = os.path.join(pasta_job, sub)
+        if os.path.exists(pasta_sub):
+            for cidade in os.listdir(pasta_sub):
+                pasta_cidade = os.path.join(pasta_sub, cidade)
+                if os.path.isdir(pasta_cidade):
+                    for arq in os.listdir(pasta_cidade):
+                        if arq.endswith(".pdf"):
+                            pdfs.append(f"{sub}/{cidade}/{arq}")
+    job["pdfs"]      = pdfs
+    job["pasta_job"] = pasta_job
 
     with _lock:
         historico.insert(0, dict(job))
@@ -156,11 +172,28 @@ def _verificar_fila():
 
 # ── rotas ─────────────────────────────────────────────────────────────────────
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    erro = None
+    if request.method == "POST":
+        if request.form.get("senha") == SENHA:
+            session["autenticado"] = True
+            return redirect(url_for("index"))
+        erro = "Senha incorreta. Tente novamente."
+    return render_template("login.html", erro=erro)
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 @app.route("/api/status")
+@login_required
 def api_status():
     with _lock:
         return jsonify({
@@ -170,6 +203,7 @@ def api_status():
         })
 
 @app.route("/api/logs/<jid>")
+@login_required
 def api_logs(jid):
     offset    = int(request.args.get("offset", 0))
     linhas    = _logs.get(jid, [])
@@ -183,6 +217,7 @@ def api_logs(jid):
     })
 
 @app.route("/api/iniciar", methods=["POST"])
+@login_required
 def api_iniciar():
     data    = request.get_json() or {}
     usuario = (data.get("usuario") or "Usuário").strip()[:40]
@@ -210,6 +245,7 @@ def api_iniciar():
     return jsonify({"ok": True, "job_id": job["id"]})
 
 @app.route("/api/parar", methods=["POST"])
+@login_required
 def api_parar():
     global _proc_atual, job_atual
     with _lock:
@@ -222,14 +258,16 @@ def api_parar():
     return jsonify({"ok": True})
 
 @app.route("/api/download/<jid>")
+@login_required
 def api_download(jid):
     job = next((j for j in historico if j["id"] == jid), None)
     if not job:
         abort(404)
+    pasta_job = job.get("pasta_job", PASTA_CERT)
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         for rel in job.get("pdfs", []):
-            caminho = os.path.join(PASTA_CERT, rel.replace("/", os.sep))
+            caminho = os.path.join(pasta_job, rel.replace("/", os.sep))
             if os.path.exists(caminho):
                 zf.write(caminho, rel)
     buf.seek(0)

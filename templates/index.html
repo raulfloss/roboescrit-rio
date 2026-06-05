@@ -106,6 +106,7 @@ tr:last-child td{border-bottom:none}
     <h1>Robô de Certidões Negativas<small>escritório</small></h1>
   </div>
   <div id="hd-usuario"></div>
+  <a href="/logout" style="margin-left:16px;padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border-radius:8px;font-size:.8rem;text-decoration:none;white-space:nowrap">Sair</a>
 </header>
 
 <div class="wrap">
@@ -245,7 +246,9 @@ function tagMotivo(motivo) {
   return `<span class="tag-erro">${motivo}</span>`;
 }
 
-function abrirRelatorio(j) {
+function abrirRelatorio(jid) {
+  const j = _historico.find(x => x.id === jid);
+  if (!j) return;
   const erros = j.erros_detalhe || [];
   const total  = j.total  || 0;
   const ok     = j.sucesso || 0;
@@ -367,20 +370,23 @@ function renderHistorico(hist) {
       <td style="color:${j.erros>0?"#dc2626":"#888"};font-weight:700">${j.erros||0}</td>
       <td style="display:flex;gap:6px;flex-wrap:wrap">
         ${j.pdfs&&j.pdfs.length?`<a class="btn-dl" href="/api/download/${j.id}">⬇ ${j.pdfs.length} PDFs</a>`:""}
-        ${(j.erros_detalhe&&j.erros_detalhe.length)||j.relatorio_txt?`<button class="btn-rel" onclick='abrirRelatorio(${JSON.stringify(j)})'>📋 Relatório</button>`:"—"}
+        <button class="btn-rel" onclick="abrirRelatorio('${j.id}')">📋 Relatório</button>
       </td>
     </tr>`).join("")}</tbody>
   </table>`;
 }
 
 // ── polling ───────────────────────────────────────────────────────────────────
+let _historico = [];
+
 async function atualizarStatus() {
   try {
     const r = await fetch("/api/status");
     const d = await r.json();
+    _historico = d.historico || [];
     renderAtual(d.job_atual);
     renderFila(d.fila);
-    renderHistorico(d.historico);
+    renderHistorico(_historico);
   } catch(e) {}
 }
 
