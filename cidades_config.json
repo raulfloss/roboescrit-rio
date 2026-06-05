@@ -1,0 +1,61 @@
+{
+  "Alta Floresta": {
+    "sistema": "gpsrv",
+    "url": "https://gp.srv.br/tributario/altafloresta/portal_serv_servico?12,33",
+    "tipo_certidao": "1",
+    "clicar_emitir": true,
+    "clicar_table_finalidade": false
+  },
+  "Matupa": {
+    "sistema": "gpsrv",
+    "url": "https://www.gp.srv.br/tributario/matupa/portal_serv_servico?12,33",
+    "tipo_certidao": "1",
+    "clicar_emitir": true,
+    "clicar_table_finalidade": false
+  },
+  "Nova Bandeirantes": {
+    "sistema": "agili",
+    "url": "https://agiliblue.agilicloud.com.br/portal/novabandeirantes/#/certidao"
+  },
+  "Nova Canaa Do Norte": {
+    "sistema": "i7sgp",
+    "url": "https://web-novacanaadonortemt.i7sgp.app.br/servicosweb/home.jsf"
+  },
+  "Nova Monte Verde": {
+    "sistema": "agili",
+    "url": "https://agiliblue.agilicloud.com.br/portal/prefnovamonteverde-mt/#/certidao"
+  },
+  "Peixoto": {
+    "sistema": "gpsrv",
+    "url": "https://gp.srv.br/tributario/peixotodeazevedo/portal_serv_servico?12,53",
+    "tipo_certidao": "2",
+    "clicar_emitir": false,
+    "clicar_table_finalidade": true
+  },
+  "Peixoto De Azevedo": {
+    "sistema": "gpsrv",
+    "url": "https://gp.srv.br/tributario/peixotodeazevedo/portal_serv_servico?12,53",
+    "tipo_certidao": "2",
+    "clicar_emitir": false,
+    "clicar_table_finalidade": true
+  },
+  "Sinop": {
+    "sistema": "gpsrv",
+    "url": "https://www.gp.srv.br/tributario/sinop/portal_serv_servico?12,53",
+    "tipo_certidao": "2",
+    "clicar_emitir": false,
+    "clicar_table_finalidade": true
+  },
+  "Carlinda": {
+    "sistema": "agili",
+    "url": "https://agiliblue.agilicloud.com.br/portal/prefcarlinda-mt/#/certidao"
+  },
+  "Paranaita": {
+    "sistema": "agili",
+    "url": "https://agili.paranaita.mt.gov.br/portal/paranaita/#/certidao"
+  },
+  "Paranaita-Mt": {
+    "sistema": "agili",
+    "url": "https://agili.paranaita.mt.gov.br/portal/paranaita/#/certidao"
+  }
+}

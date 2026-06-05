@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, send_file, abort, se
 from functools import wraps
 import subprocess, threading, json, os, sys, uuid, io, zipfile, re, time, socket
 from datetime import datetime
+import pandas as pd
 
 app = Flask(__name__)
 app.secret_key = "nortao_robo_certidoes_chave_secreta_2026"
@@ -26,6 +27,40 @@ def sem_cache(response):
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PASTA_CERT = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
+
+ARQUIVO_EXCEL = os.path.join(BASE_DIR, "cnpjs.xlsx.xlsx")
+COLUNA_CNPJ   = "CNPJ (MF) N.º"
+COLUNA_CIDADE = "Cidade / UF"
+COLUNA_NOME   = "Razão Social"
+_excel_lock   = threading.Lock()
+
+CIDADES_CONFIG_FILE = os.path.join(BASE_DIR, "cidades_config.json")
+ESTADOS_BETHA       = {"MT", "MS"}
+_cidades_lock       = threading.Lock()
+
+def _ler_excel():
+    if not os.path.exists(ARQUIVO_EXCEL):
+        return pd.DataFrame(columns=[COLUNA_CNPJ, COLUNA_NOME, COLUNA_CIDADE])
+    try:
+        return pd.read_excel(ARQUIVO_EXCEL, dtype=str).fillna("")
+    except Exception:
+        return pd.DataFrame(columns=[COLUNA_CNPJ, COLUNA_NOME, COLUNA_CIDADE])
+
+def _salvar_excel(df):
+    df.to_excel(ARQUIVO_EXCEL, index=False)
+
+def _ler_cidades():
+    if os.path.exists(CIDADES_CONFIG_FILE):
+        try:
+            with open(CIDADES_CONFIG_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _salvar_cidades(cfg):
+    with open(CIDADES_CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
 HIST_FILE  = os.path.join(BASE_DIR, "historico.json")
 
 _lock      = threading.Lock()
@@ -282,6 +317,115 @@ def api_download(jid):
     return send_file(buf, as_attachment=True,
                      download_name=f"certidoes_{jid}.zip",
                      mimetype="application/zip")
+
+# ── cidades / portais ────────────────────────────────────────────────────────
+
+def _nome_cidade(cidade_uf):
+    """Extrai e normaliza o nome da cidade de 'Sinop/MT' → 'Sinop'."""
+    partes = str(cidade_uf).strip().replace("-", "/").split("/")
+    return partes[0].strip().title()
+
+def _estado_cidade(cidade_uf):
+    partes = str(cidade_uf).strip().replace("-", "/").split("/")
+    return partes[-1].strip().upper()[:2] if len(partes) > 1 else ""
+
+@app.route("/api/cidades", methods=["GET"])
+@login_required
+def api_cidades():
+    with _cidades_lock:
+        cfg = _ler_cidades()
+    return jsonify({
+        "configs":       cfg,
+        "estados_betha": list(ESTADOS_BETHA),
+    })
+
+# ── gerenciamento de empresas ─────────────────────────────────────────────────
+
+@app.route("/api/empresas", methods=["GET"])
+@login_required
+def api_empresas_listar():
+    with _excel_lock:
+        df = _ler_excel()
+    registros = []
+    for _, row in df.iterrows():
+        cnpj = str(row.get(COLUNA_CNPJ, "") or "").strip()
+        if cnpj:
+            registros.append({
+                "cnpj":   cnpj,
+                "nome":   str(row.get(COLUNA_NOME, "") or "").strip(),
+                "cidade": str(row.get(COLUNA_CIDADE, "") or "").strip(),
+            })
+    return jsonify({"empresas": registros})
+
+@app.route("/api/empresas", methods=["POST"])
+@login_required
+def api_empresas_adicionar():
+    data   = request.get_json() or {}
+    cnpj   = re.sub(r"[.\-/\s]", "", data.get("cnpj") or "").strip()
+    nome   = (data.get("nome") or "").strip()[:120]
+    cidade = (data.get("cidade") or "").strip()[:80]
+
+    if not cnpj or len(cnpj) != 14 or not cnpj.isdigit():
+        return jsonify({"erro": "CNPJ inválido — informe os 14 dígitos"}), 400
+    if not cidade:
+        return jsonify({"erro": "Informe a Cidade/UF (ex: Sinop/MT)"}), 400
+
+    # Configuração de portal (opcional — só quando a cidade é nova)
+    sistema    = (data.get("sistema") or "").strip().lower()
+    url_portal = (data.get("url_portal") or "").strip()
+    perfil_gpsrv = str(data.get("perfil_gpsrv") or "A").upper()
+
+    cnpj_fmt   = f"{cnpj[:2]}.{cnpj[2:5]}.{cnpj[5:8]}/{cnpj[8:12]}-{cnpj[12:]}"
+    nome_cidade = _nome_cidade(cidade)
+    estado      = _estado_cidade(cidade)
+
+    # Se enviou configuração de portal, salva no JSON
+    if sistema in ("agili", "i7sgp", "gpsrv") and url_portal:
+        nova_cfg = {"sistema": sistema, "url": url_portal}
+        if sistema == "gpsrv":
+            if perfil_gpsrv == "B":
+                nova_cfg.update({"tipo_certidao": "2", "clicar_emitir": False, "clicar_table_finalidade": True})
+            else:
+                nova_cfg.update({"tipo_certidao": "1", "clicar_emitir": True,  "clicar_table_finalidade": False})
+        with _cidades_lock:
+            cfg = _ler_cidades()
+            cfg[nome_cidade] = nova_cfg
+            _salvar_cidades(cfg)
+
+    # Salva empresa no Excel
+    with _excel_lock:
+        df = _ler_excel()
+        if COLUNA_CNPJ in df.columns:
+            ja_existe = df[COLUNA_CNPJ].str.replace(r"[.\-/\s]", "", regex=True).str.strip().eq(cnpj)
+            if ja_existe.any():
+                return jsonify({"erro": "CNPJ já cadastrado na planilha"}), 409
+        nova = {COLUNA_CNPJ: cnpj_fmt, COLUNA_NOME: nome, COLUNA_CIDADE: cidade}
+        df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
+        _salvar_excel(df)
+
+    # Avisa se a cidade ficou sem portal (não é MT/MS e não foi configurada)
+    with _cidades_lock:
+        cfg = _ler_cidades()
+    tem_portal = nome_cidade in cfg or estado in ESTADOS_BETHA
+    return jsonify({"ok": True, "sem_portal": not tem_portal})
+
+@app.route("/api/empresas/<cnpj>", methods=["DELETE"])
+@login_required
+def api_empresas_remover(cnpj):
+    cnpj = re.sub(r"[.\-/\s]", "", cnpj).strip()
+    if not cnpj or not cnpj.isdigit():
+        return jsonify({"erro": "CNPJ inválido"}), 400
+    with _excel_lock:
+        df = _ler_excel()
+        if COLUNA_CNPJ not in df.columns:
+            return jsonify({"erro": "Planilha sem coluna de CNPJ"}), 400
+        cnpjs_norm = df[COLUNA_CNPJ].str.replace(r"[.\-/\s]", "", regex=True).str.strip()
+        antes = len(df)
+        df = df[cnpjs_norm != cnpj].reset_index(drop=True)
+        if len(df) == antes:
+            return jsonify({"erro": "CNPJ não encontrado"}), 404
+        _salvar_excel(df)
+    return jsonify({"ok": True})
 
 # ── inicialização ─────────────────────────────────────────────────────────────
 

@@ -72,10 +72,49 @@ tr:last-child td{border-bottom:none}
 .tag-debito{color:#b45309;font-weight:600}
 .tag-erro{color:#dc2626;font-weight:600}
 .tag-naoenc{color:#6b7280;font-weight:600}
-#aviso-download{display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#065f46;color:#fff;padding:16px 24px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:999;display:none;align-items:center;gap:16px;font-size:.9rem;max-width:90vw}
+#aviso-download{display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#065f46;color:#fff;padding:16px 24px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,.25);z-index:999;align-items:center;gap:16px;font-size:.9rem;max-width:90vw}
 #aviso-download strong{font-size:1rem}
 #aviso-download a{background:#fff;color:#065f46;padding:7px 16px;border-radius:8px;font-weight:700;text-decoration:none;white-space:nowrap}
 #aviso-download button{background:transparent;border:none;color:#fff;font-size:1.2rem;cursor:pointer;opacity:.7;margin-left:8px}
+/* ── tabs ────────────────────────────────────────────────────────── */
+.tab-nav{background:#fff;border-bottom:2px solid #e5e7eb;display:flex;padding:0 20px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.tab-btn{padding:13px 18px;font-size:.88rem;font-weight:600;color:#888;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;transition:color .18s,border-color .18s}
+.tab-btn.ativo{color:#4f46e5;border-bottom-color:#4f46e5}
+.tab-btn:hover:not(.ativo){color:#444}
+.tab-panel{display:none}
+.tab-panel.ativo{display:block}
+/* ── empresas ────────────────────────────────────────────────────── */
+.wrap-emp{max-width:1120px;margin:0 auto;padding:22px 16px;display:grid;grid-template-columns:380px 1fr;gap:18px}
+@media(max-width:720px){.wrap-emp{grid-template-columns:1fr}}
+.btn-add{width:100%;padding:11px;background:#059669;color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:700;cursor:pointer;transition:background .2s;margin-top:4px}
+.btn-add:hover{background:#047857}
+.btn-add:disabled{background:#6ee7b7;cursor:not-allowed}
+.btn-rem{padding:3px 10px;background:#fee2e2;color:#dc2626;border:none;border-radius:6px;font-size:.75rem;font-weight:700;cursor:pointer;white-space:nowrap}
+.btn-rem:hover{background:#fecaca}
+.emp-search{width:100%;padding:8px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.85rem;outline:none;margin-bottom:10px}
+.emp-search:focus{border-color:#4f46e5}
+.emp-count{font-size:.8rem;color:#888;margin-bottom:8px}
+mark{background:#fef3c7;border-radius:2px;padding:0 1px}
+/* status da cidade */
+.cidade-status{display:none;margin-top:6px;padding:9px 13px;border-radius:8px;font-size:.82rem;font-weight:500;line-height:1.4}
+.cidade-status.ok   {background:#d1fae5;color:#065f46}
+.cidade-status.betha{background:#dbeafe;color:#1e40af}
+.cidade-status.novo {background:#fef3c7;color:#92400e}
+.cidade-status.aviso{background:#fee2e2;color:#991b1b}
+/* painel portal */
+.portal-box{display:none;background:#f8fafc;border:1.5px solid #e0e0e0;border-radius:10px;padding:14px;margin-top:10px}
+.portal-box .field{margin-bottom:10px}
+.portal-box label{color:#555}
+.perfil-opts{display:flex;gap:10px;margin-top:4px}
+.perfil-opt{flex:1;border:1.5px solid #e0e0e0;border-radius:8px;padding:8px 10px;cursor:pointer;font-size:.8rem;transition:border-color .2s,background .2s}
+.perfil-opt input[type=radio]{display:none}
+.perfil-opt.sel{border-color:#4f46e5;background:#ede9fe}
+.aviso-sem-portal{background:#fff7ed;border:1.5px solid #fed7aa;border-radius:10px;padding:12px 14px;margin-top:10px;font-size:.82rem;color:#9a3412;line-height:1.5;display:none}
+.aviso-sem-portal strong{display:block;margin-bottom:3px}
+/* toast */
+.toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;font-size:.88rem;font-weight:600;color:#fff;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .3s;pointer-events:none}
+.toast-ok{background:#059669}
+.toast-err{background:#dc2626}
 </style>
 </head>
 <body>
@@ -109,18 +148,22 @@ tr:last-child td{border-bottom:none}
   <a href="/logout" style="margin-left:16px;padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border-radius:8px;font-size:.8rem;text-decoration:none;white-space:nowrap">Sair</a>
 </header>
 
+<nav class="tab-nav">
+  <button class="tab-btn ativo" onclick="trocarTab('proc',this)">▶ Processamento</button>
+  <button class="tab-btn" onclick="trocarTab('emp',this)">🏢 Empresas</button>
+</nav>
+
+<!-- ══ Tab: Processamento ════════════════════════════════════════════════════ -->
+<div id="tab-proc" class="tab-panel ativo">
 <div class="wrap">
 
-  <!-- ── Coluna esquerda ───────────────────────────── -->
   <div>
     <div class="card" style="margin-bottom:18px">
       <div class="card-title">Nova Solicitação</div>
-
       <div class="field">
         <label>Seu nome</label>
         <input id="inp-nome" type="text" placeholder="Ex: Ana" maxlength="40" autocomplete="off">
       </div>
-
       <div class="field">
         <label>Modo</label>
         <select id="sel-modo" onchange="toggleCnpj()">
@@ -130,36 +173,128 @@ tr:last-child td{border-bottom:none}
           <option value="cnpj">CNPJ específico</option>
         </select>
       </div>
-
       <div class="field" id="div-cnpj" style="display:none">
         <label>CNPJ</label>
         <input id="inp-cnpj" type="text" placeholder="00.000.000/0000-00" maxlength="18">
       </div>
-
       <button class="btn-start" id="btn-iniciar" onclick="iniciar()">▶ Iniciar Processamento</button>
     </div>
-
     <div class="card">
       <div class="card-title">Fila de Espera</div>
       <div id="painel-fila"><div class="empty">Nenhum job aguardando</div></div>
     </div>
   </div>
 
-  <!-- ── Coluna direita ──────────────────────────────── -->
   <div class="right-col">
-
     <div class="card">
       <div class="card-title">Em Andamento</div>
       <div id="painel-atual"><div class="empty">Nenhum processamento em execução</div></div>
     </div>
-
     <div class="card">
       <div class="card-title">Histórico</div>
       <div id="painel-hist"><div class="empty">Nenhum job concluído ainda</div></div>
     </div>
-
   </div>
+
 </div>
+</div><!-- /tab-proc -->
+
+<!-- ══ Tab: Empresas ═════════════════════════════════════════════════════════ -->
+<div id="tab-emp" class="tab-panel">
+<div class="wrap-emp">
+
+  <!-- ── Formulário ─────────────────────────────────── -->
+  <div>
+    <div class="card">
+      <div class="card-title">Adicionar Empresa</div>
+
+      <div class="field">
+        <label>CNPJ</label>
+        <input id="emp-cnpj" type="text" placeholder="00.000.000/0000-00" maxlength="18"
+               oninput="mascCnpj(this)" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Razão Social</label>
+        <input id="emp-nome" type="text" placeholder="Ex: Empresa Ltda" maxlength="120" autocomplete="off">
+      </div>
+      <div class="field">
+        <label>Cidade / UF</label>
+        <input id="emp-cidade" type="text" placeholder="Ex: Sinop/MT" maxlength="80"
+               autocomplete="off" oninput="agendarVerificarCidade()">
+        <!-- Status da cidade -->
+        <div class="cidade-status" id="cidade-status"></div>
+      </div>
+
+      <!-- Painel de configuração de portal (aparece quando a cidade não tem portal) -->
+      <div class="portal-box" id="portal-box">
+        <div style="font-size:.82rem;font-weight:700;color:#444;margin-bottom:10px">
+          ⚙️ Configurar portal desta cidade
+        </div>
+
+        <div class="field">
+          <label>Sistema</label>
+          <select id="portal-sistema" onchange="atualizarCamposPortal()">
+            <option value="">— Selecione —</option>
+            <option value="agili">Agili Blue</option>
+            <option value="i7sgp">i7sgp</option>
+            <option value="gpsrv">GP.SRV.br</option>
+          </select>
+        </div>
+
+        <div class="field" id="campo-url-portal">
+          <label>URL do portal da certidão</label>
+          <input id="portal-url" type="text" placeholder="https://..." autocomplete="off">
+        </div>
+
+        <!-- Perfil gpsrv (só aparece quando sistema = gpsrv) -->
+        <div class="field" id="campo-perfil-gpsrv" style="display:none">
+          <label>Perfil do portal GP.SRV</label>
+          <div class="perfil-opts">
+            <label class="perfil-opt sel" id="perfil-a-label">
+              <input type="radio" name="perfil_gpsrv" value="A" checked onchange="selecionarPerfil(this)">
+              <strong>Perfil A</strong><br>
+              <span style="color:#666">Clica em "Emitir" antes de preencher (ex: Alta Floresta)</span>
+            </label>
+            <label class="perfil-opt" id="perfil-b-label">
+              <input type="radio" name="perfil_gpsrv" value="B" onchange="selecionarPerfil(this)">
+              <strong>Perfil B</strong><br>
+              <span style="color:#666">Seleciona finalidade na tabela (ex: Sinop, Peixoto)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aviso quando não configura portal -->
+      <div class="aviso-sem-portal" id="aviso-sem-portal">
+        <strong>⚠️ Cidade sem portal cadastrado</strong>
+        A empresa será cadastrada, mas o robô não conseguirá baixar a certidão desta cidade.
+        Para habilitar, acione o responsável pelo robô informando a URL do portal municipal.
+      </div>
+
+      <button class="btn-add" id="btn-add-emp" onclick="adicionarEmpresa()">+ Adicionar Empresa</button>
+    </div>
+  </div>
+
+  <!-- ── Lista ──────────────────────────────────────── -->
+  <div class="card">
+    <div class="card-title">Empresas Cadastradas</div>
+    <input class="emp-search" id="emp-busca" type="text"
+           placeholder="Buscar por CNPJ, nome ou cidade..." oninput="filtrarEmpresas()">
+    <div class="emp-count" id="emp-count"></div>
+    <div style="overflow-x:auto">
+      <table>
+        <thead><tr>
+          <th>CNPJ</th><th>Razão Social</th><th>Cidade / UF</th><th>Portal</th><th></th>
+        </tr></thead>
+        <tbody id="emp-tbody">
+          <tr><td colspan="5" class="empty">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</div><!-- /tab-emp -->
 
 <script>
 // ── nome salvo ────────────────────────────────────────────────────────────────
@@ -195,14 +330,11 @@ function classeLinha(l) {
 }
 
 // ── log ao vivo ───────────────────────────────────────────────────────────────
-let logOffset  = 0;
-let logJobId   = null;
-let logTimer   = null;
+let logOffset = 0, logJobId = null, logTimer = null;
 
 function iniciarLog(jid) {
   if (jid === logJobId) return;
-  logOffset = 0;
-  logJobId  = jid;
+  logOffset = 0; logJobId = jid;
   if (logTimer) clearInterval(logTimer);
   logTimer = setInterval(() => buscarLog(jid), 1000);
 }
@@ -211,65 +343,43 @@ async function buscarLog(jid) {
   try {
     const r = await fetch(`/api/logs/${jid}?offset=${logOffset}`);
     const d = await r.json();
-    if (d.linhas.length) {
-      appendLog(d.linhas);
-      logOffset += d.linhas.length;
-    }
+    if (d.linhas.length) { appendLog(d.linhas); logOffset += d.linhas.length; }
     if (d.concluido) {
-      clearInterval(logTimer);
-      logTimer = null;
-      logJobId = null;
-      await atualizarStatus();
-      mostrarAviso(jid);
+      clearInterval(logTimer); logTimer = null; logJobId = null;
+      await atualizarStatus(); mostrarAviso(jid);
     }
   } catch(e) {}
 }
 
 function mostrarAviso(jid) {
-  const aviso = document.getElementById("aviso-download");
-  const link  = document.getElementById("aviso-link");
-  link.href = `/api/download/${jid}`;
-  aviso.style.display = "flex";
+  const av = document.getElementById("aviso-download");
+  document.getElementById("aviso-link").href = `/api/download/${jid}`;
+  av.style.display = "flex";
 }
+function fecharAviso() { document.getElementById("aviso-download").style.display = "none"; }
+function fecharModal(e) { if (e.target.id === "modal-rel") document.getElementById("modal-rel").classList.remove("open"); }
 
-function fecharAviso() {
-  document.getElementById("aviso-download").style.display = "none";
-}
-
-function fecharModal(e) {
-  if (e.target.id === "modal-rel") document.getElementById("modal-rel").classList.remove("open");
-}
-
-function tagMotivo(motivo) {
-  if (motivo.includes("débitos"))  return `<span class="tag-debito">${motivo}</span>`;
-  if (motivo.includes("não encontrado") || motivo.includes("Não encontrado")) return `<span class="tag-naoenc">${motivo}</span>`;
-  return `<span class="tag-erro">${motivo}</span>`;
+function tagMotivo(m) {
+  if (m.includes("débitos")) return `<span class="tag-debito">${m}</span>`;
+  if (m.includes("não encontrado") || m.includes("Não encontrado")) return `<span class="tag-naoenc">${m}</span>`;
+  return `<span class="tag-erro">${m}</span>`;
 }
 
 function abrirRelatorio(jid) {
   const j = _historico.find(x => x.id === jid);
   if (!j) return;
   const erros = j.erros_detalhe || [];
-  const total  = j.total  || 0;
-  const ok     = j.sucesso || 0;
-  const nok    = erros.length;
-
-  let html = `
-    <div class="rel-resumo">
-      <div class="rel-stat"><strong style="color:#059669">${ok}</strong><span>Certidões geradas</span></div>
-      <div class="rel-stat"><strong style="color:#dc2626">${nok}</strong><span>Com problema</span></div>
-      <div class="rel-stat"><strong>${total}</strong><span>Total processado</span></div>
-    </div>`;
-
+  let html = `<div class="rel-resumo">
+    <div class="rel-stat"><strong style="color:#059669">${j.sucesso||0}</strong><span>Certidões geradas</span></div>
+    <div class="rel-stat"><strong style="color:#dc2626">${erros.length}</strong><span>Com problema</span></div>
+    <div class="rel-stat"><strong>${j.total||0}</strong><span>Total processado</span></div>
+  </div>`;
   if (erros.length) {
-    html += `<table class="rel-table">
-      <thead><tr><th>CNPJ</th><th>Motivo</th></tr></thead>
-      <tbody>${erros.map(e=>`<tr><td><code>${e.cnpj}</code></td><td>${tagMotivo(e.motivo)}</td></tr>`).join("")}</tbody>
-    </table>`;
+    html += `<table class="rel-table"><thead><tr><th>CNPJ</th><th>Motivo</th></tr></thead>
+      <tbody>${erros.map(e=>`<tr><td><code>${e.cnpj}</code></td><td>${tagMotivo(e.motivo)}</td></tr>`).join("")}</tbody></table>`;
   } else {
     html += `<p style="color:#059669;font-weight:600;text-align:center;padding:16px">✅ Nenhum erro registrado!</p>`;
   }
-
   document.getElementById("modal-corpo").innerHTML = html;
   document.getElementById("modal-rel").classList.add("open");
 }
@@ -289,23 +399,18 @@ function appendLog(linhas) {
   if (atBottom) box.scrollTop = box.scrollHeight;
 }
 
-// ── parar ─────────────────────────────────────────────────────────────────────
 async function pararJob() {
   if (!confirm("Deseja parar o processamento em andamento?")) return;
-  try {
-    await fetch("/api/parar", { method: "POST" });
-    atualizarStatus();
-  } catch(e) { alert("Erro ao tentar parar."); }
+  try { await fetch("/api/parar", { method: "POST" }); atualizarStatus(); }
+  catch(e) { alert("Erro ao tentar parar."); }
 }
 
-// ── iniciar ───────────────────────────────────────────────────────────────────
 async function iniciar() {
   const nome = $nome.value.trim();
   const modo = document.getElementById("sel-modo").value;
   const cnpj = document.getElementById("inp-cnpj").value.trim();
   if (!nome) { alert("Informe seu nome antes de iniciar."); return; }
   if (modo === "cnpj" && !cnpj) { alert("Informe o CNPJ."); return; }
-
   const btn = document.getElementById("btn-iniciar");
   btn.disabled = true;
   try {
@@ -320,7 +425,6 @@ async function iniciar() {
   finally { btn.disabled = false; }
 }
 
-// ── renderização ──────────────────────────────────────────────────────────────
 function renderAtual(job) {
   const el = document.getElementById("painel-atual");
   if (!job) { el.innerHTML = '<div class="empty">Nenhum processamento em execução</div>'; return; }
@@ -328,20 +432,20 @@ function renderAtual(job) {
   const pct    = job.total > 0 ? Math.round(feitos / job.total * 100) : 0;
   el.innerHTML = `
     <div class="job-header">
-      <div><div class="job-user">${job.usuario}</div><div class="job-mode">${MODO_LABEL[job.modo]||job.modo}${job.cnpj ? " — " + job.cnpj : ""}</div></div>
+      <div><div class="job-user">${job.usuario}</div><div class="job-mode">${MODO_LABEL[job.modo]||job.modo}${job.cnpj?" — "+job.cnpj:""}</div></div>
       <div style="display:flex;align-items:center;gap:10px">
         ${badge(job.status)}
-        ${job.status === "rodando" ? '<button class="btn-parar" onclick="pararJob()">⏹ Parar</button>' : ""}
+        ${job.status==="rodando"?'<button class="btn-parar" onclick="pararJob()">⏹ Parar</button>':""}
       </div>
     </div>
-    ${job.total > 0 ? `
+    ${job.total>0?`
     <div class="stat-row">
       <div class="stat"><strong>${job.sucesso||0}</strong><span>Certidões</span></div>
       <div class="stat"><strong>${job.erros||0}</strong><span>Erros</span></div>
       <div class="stat"><strong>${feitos}/${job.total}</strong><span>CNPJs</span></div>
       <div class="stat"><strong>${pct}%</strong><span>Progresso</span></div>
     </div>
-    <div class="progress"><div class="progress-fill" style="width:${pct}%"></div></div>` : ""}
+    <div class="progress"><div class="progress-fill" style="width:${pct}%"></div></div>`:""}
     <div class="log-box" id="log-live"></div>`;
   iniciarLog(job.id);
 }
@@ -376,7 +480,6 @@ function renderHistorico(hist) {
   </table>`;
 }
 
-// ── polling ───────────────────────────────────────────────────────────────────
 let _historico = [];
 
 async function atualizarStatus() {
@@ -392,6 +495,262 @@ async function atualizarStatus() {
 
 setInterval(() => { if (!logTimer) atualizarStatus(); }, 3000);
 atualizarStatus();
+
+// ── tabs ──────────────────────────────────────────────────────────────────────
+function trocarTab(id, btn) {
+  document.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("ativo"));
+  document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("ativo"));
+  document.getElementById("tab-" + id).classList.add("ativo");
+  btn.classList.add("ativo");
+  if (id === "emp") carregarEmpresas();
+}
+
+// ── verificação de cidade ─────────────────────────────────────────────────────
+let _cidadesCache   = null;
+let _cidadeTimer    = null;
+let _estadoAtual    = "";
+
+function parseCidadeUF(val) {
+  const sep = val.includes("/") ? "/" : val.includes("-") ? "-" : null;
+  if (!sep) return [val.trim().toLowerCase(), ""];
+  const p = val.split(sep);
+  return [p[0].trim().toLowerCase(), (p[p.length-1].trim().toUpperCase().slice(0,2))];
+}
+
+function titleCase(s) {
+  return s.replace(/\w\S*/g, t => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
+}
+
+async function _carregarCidades() {
+  if (_cidadesCache) return _cidadesCache;
+  try {
+    const r = await fetch("/api/cidades");
+    _cidadesCache = await r.json();
+  } catch(e) { _cidadesCache = { configs: {}, estados_betha: [] }; }
+  return _cidadesCache;
+}
+
+function agendarVerificarCidade() {
+  clearTimeout(_cidadeTimer);
+  _cidadeTimer = setTimeout(verificarCidade, 500);
+}
+
+async function verificarCidade() {
+  const val = document.getElementById("emp-cidade").value.trim();
+  const statusEl   = document.getElementById("cidade-status");
+  const portalBox  = document.getElementById("portal-box");
+  const avisoEl    = document.getElementById("aviso-sem-portal");
+
+  if (!val) {
+    statusEl.style.display = "none";
+    portalBox.style.display = "none";
+    avisoEl.style.display   = "none";
+    return;
+  }
+
+  const [cidade, estado] = parseCidadeUF(val);
+  _estadoAtual = estado;
+  const dados = await _carregarCidades();
+
+  // Verifica se cidade está nos configs (comparação case-insensitive)
+  const chave = Object.keys(dados.configs || {}).find(
+    k => k.toLowerCase() === cidade || k.toLowerCase() === titleCase(cidade).toLowerCase()
+  );
+
+  statusEl.className    = "cidade-status";
+  portalBox.style.display = "none";
+  avisoEl.style.display   = "none";
+
+  if (chave) {
+    const sys = dados.configs[chave].sistema || "";
+    statusEl.classList.add("ok");
+    statusEl.textContent = "✅ Portal configurado — sistema: " + sys.toUpperCase();
+    statusEl.style.display = "block";
+  } else if ((dados.estados_betha || []).includes(estado)) {
+    statusEl.classList.add("betha");
+    statusEl.textContent = "🔵 Usará o portal Betha (automático para " + estado + ")";
+    statusEl.style.display = "block";
+  } else {
+    statusEl.classList.add("novo");
+    statusEl.innerHTML = "⚠️ Cidade sem portal cadastrado — preencha as informações abaixo para configurar.";
+    statusEl.style.display = "block";
+    portalBox.style.display = "block";
+  }
+}
+
+function atualizarCamposPortal() {
+  const sistema = document.getElementById("portal-sistema").value;
+  document.getElementById("campo-perfil-gpsrv").style.display = sistema === "gpsrv" ? "block" : "none";
+}
+
+function selecionarPerfil(radio) {
+  document.getElementById("perfil-a-label").classList.toggle("sel", radio.value === "A");
+  document.getElementById("perfil-b-label").classList.toggle("sel", radio.value === "B");
+}
+
+// ── empresas ──────────────────────────────────────────────────────────────────
+let _empresas = [];
+
+function mascCnpj(inp) {
+  let v = inp.value.replace(/\D/g, "").slice(0, 14);
+  if      (v.length > 12) v = v.slice(0,2)+"."+v.slice(2,5)+"."+v.slice(5,8)+"/"+v.slice(8,12)+"-"+v.slice(12);
+  else if (v.length > 8)  v = v.slice(0,2)+"."+v.slice(2,5)+"."+v.slice(5,8)+"/"+v.slice(8);
+  else if (v.length > 5)  v = v.slice(0,2)+"."+v.slice(2,5)+"."+v.slice(5);
+  else if (v.length > 2)  v = v.slice(0,2)+"."+v.slice(2);
+  inp.value = v;
+}
+
+function toast(msg, tipo) {
+  const t = document.createElement("div");
+  t.className = "toast " + (tipo === "ok" ? "toast-ok" : "toast-err");
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { t.style.opacity = "0"; setTimeout(() => t.remove(), 300); }, 2800);
+}
+
+function esc(txt) {
+  return (txt || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+async function carregarEmpresas() {
+  document.getElementById("emp-count").textContent = "Carregando...";
+  document.getElementById("emp-tbody").innerHTML = '<tr><td colspan="5" class="empty">Carregando...</td></tr>';
+  try {
+    const [re, rc] = await Promise.all([fetch("/api/empresas"), _carregarCidades()]);
+    const d = await re.json();
+    _empresas = d.empresas || [];
+    renderEmpresas(_empresas);
+  } catch(e) {
+    document.getElementById("emp-tbody").innerHTML = '<tr><td colspan="5" class="empty">Erro ao carregar empresas</td></tr>';
+  }
+}
+
+function filtrarEmpresas() {
+  const q = document.getElementById("emp-busca").value.toLowerCase();
+  const filtradas = q ? _empresas.filter(e =>
+    (e.cnpj||"").toLowerCase().includes(q) ||
+    (e.nome||"").toLowerCase().includes(q) ||
+    (e.cidade||"").toLowerCase().includes(q)
+  ) : _empresas;
+  renderEmpresas(filtradas, q);
+}
+
+function _badgePortal(cidadeUF) {
+  if (!_cidadesCache) return '<span style="color:#bbb;font-size:.75rem">—</span>';
+  const [cidade, estado] = parseCidadeUF(cidadeUF || "");
+  const chave = Object.keys(_cidadesCache.configs || {}).find(
+    k => k.toLowerCase() === cidade || k.toLowerCase() === titleCase(cidade).toLowerCase()
+  );
+  if (chave) {
+    const sys = (_cidadesCache.configs[chave].sistema || "").toUpperCase();
+    return `<span style="background:#d1fae5;color:#065f46;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:12px">${sys}</span>`;
+  }
+  if ((_cidadesCache.estados_betha || []).includes(estado)) {
+    return `<span style="background:#dbeafe;color:#1e40af;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:12px">BETHA</span>`;
+  }
+  return `<span style="background:#fee2e2;color:#991b1b;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:12px">Sem portal</span>`;
+}
+
+function renderEmpresas(lista, destaque) {
+  const total = _empresas.length;
+  document.getElementById("emp-count").textContent = destaque
+    ? `${lista.length} de ${total} empresa${total!==1?"s":""}`
+    : `${total} empresa${total!==1?"s":""} cadastrada${total!==1?"s":""}`;
+
+  const tbody = document.getElementById("emp-tbody");
+  if (!lista.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhuma empresa encontrada</td></tr>';
+    return;
+  }
+  function hl(txt) {
+    if (!destaque || !txt) return esc(txt);
+    const re = new RegExp("("+destaque.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+")", "gi");
+    return esc(txt).replace(re, "<mark>$1</mark>");
+  }
+  tbody.innerHTML = lista.map(e => {
+    const digits = (e.cnpj || "").replace(/[.\-\/]/g, "");
+    return `<tr>
+      <td><code>${hl(e.cnpj)}</code></td>
+      <td>${hl(e.nome)}</td>
+      <td>${hl(e.cidade)}</td>
+      <td>${_badgePortal(e.cidade)}</td>
+      <td><button class="btn-rem" onclick="removerEmpresa('${digits}')">✕ Remover</button></td>
+    </tr>`;
+  }).join("");
+}
+
+async function adicionarEmpresa() {
+  const cnpj    = document.getElementById("emp-cnpj").value.trim();
+  const nome    = document.getElementById("emp-nome").value.trim();
+  const cidade  = document.getElementById("emp-cidade").value.trim();
+  const sistema = document.getElementById("portal-sistema").value;
+  const urlPort = document.getElementById("portal-url").value.trim();
+  const perfil  = (document.querySelector('input[name="perfil_gpsrv"]:checked') || {}).value || "A";
+
+  if (!cnpj)   { toast("Informe o CNPJ", "err"); return; }
+  if (!cidade) { toast("Informe a Cidade/UF (ex: Sinop/MT)", "err"); return; }
+
+  // Se o painel de portal está aberto e sistema foi selecionado, exige URL
+  const portalVisivel = document.getElementById("portal-box").style.display !== "none";
+  if (portalVisivel && sistema && !urlPort) {
+    toast("Informe a URL do portal para o sistema selecionado", "err");
+    return;
+  }
+
+  // Se portal está aberto mas não preencheu → mostra aviso e confirma
+  if (portalVisivel && !sistema) {
+    document.getElementById("aviso-sem-portal").style.display = "block";
+    if (!confirm("Esta cidade não tem portal configurado. Deseja cadastrar a empresa assim mesmo?\n\nO robô não conseguirá baixar a certidão desta cidade até que o portal seja cadastrado.")) return;
+  }
+
+  const btn = document.getElementById("btn-add-emp");
+  btn.disabled = true;
+  try {
+    const payload = { cnpj, nome, cidade };
+    if (sistema && urlPort) { payload.sistema = sistema; payload.url_portal = urlPort; payload.perfil_gpsrv = perfil; }
+
+    const r = await fetch("/api/empresas", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    if (d.erro) { toast(d.erro, "err"); return; }
+
+    if (d.sem_portal) {
+      toast("Empresa cadastrada — mas sem portal configurado para esta cidade.", "err");
+    } else {
+      toast("Empresa adicionada com sucesso!", "ok");
+    }
+
+    // Limpa o formulário
+    document.getElementById("emp-cnpj").value   = "";
+    document.getElementById("emp-nome").value   = "";
+    document.getElementById("emp-cidade").value = "";
+    document.getElementById("portal-sistema").value = "";
+    document.getElementById("portal-url").value = "";
+    document.getElementById("cidade-status").style.display  = "none";
+    document.getElementById("portal-box").style.display     = "none";
+    document.getElementById("aviso-sem-portal").style.display = "none";
+    document.getElementById("emp-cnpj").focus();
+
+    // Invalida cache de cidades para recarregar
+    _cidadesCache = null;
+    carregarEmpresas();
+  } catch(e) { toast("Erro ao conectar com o servidor", "err"); }
+  finally { btn.disabled = false; }
+}
+
+async function removerEmpresa(cnpj) {
+  if (!confirm("Remover este CNPJ da planilha?")) return;
+  try {
+    const r = await fetch("/api/empresas/" + cnpj, { method: "DELETE" });
+    const d = await r.json();
+    if (d.erro) { toast(d.erro, "err"); return; }
+    toast("Empresa removida com sucesso.", "ok");
+    carregarEmpresas();
+  } catch(e) { toast("Erro ao conectar com o servidor", "err"); }
+}
 </script>
 </body>
 </html>

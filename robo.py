@@ -9,6 +9,7 @@ import tempfile
 import base64
 import platform
 import shutil
+import json
 import sys
 import re
 import os
@@ -48,71 +49,21 @@ PASTA_POSITIVAS  = os.path.join(PASTA_DOWNLOADS, "positivas")
 os.makedirs(PASTA_NEGATIVAS, exist_ok=True)
 os.makedirs(PASTA_POSITIVAS, exist_ok=True)
 
-# --- Configuração dos sistemas por cidade ---
+# --- Configuração dos sistemas por cidade (carregada do JSON externo) ---
 # "sistema": "betha"  → usa o portal Betha (seleção de estado/município)
 # "sistema": "gpsrv"  → usa o portal gp.srv.br (fluxo específico por URL)
-CIDADES_CONFIG = {
-    "Alta Floresta": {
-        "sistema": "gpsrv",
-        "url": "https://gp.srv.br/tributario/altafloresta/portal_serv_servico?12,33",
-        "tipo_certidao": "1",
-        "clicar_emitir": True,
-        "clicar_table_finalidade": False,
-    },
-    "Matupa": {
-        "sistema": "gpsrv",
-        "url": "https://www.gp.srv.br/tributario/matupa/portal_serv_servico?12,33",
-        "tipo_certidao": "1",
-        "clicar_emitir": True,
-        "clicar_table_finalidade": False,
-    },
-    "Nova Bandeirantes": {
-        "sistema": "agili",
-        "url": "https://agiliblue.agilicloud.com.br/portal/novabandeirantes/#/certidao",
-    },
-    "Nova Canaa Do Norte": {
-        "sistema": "i7sgp",
-        "url": "https://web-novacanaadonortemt.i7sgp.app.br/servicosweb/home.jsf",
-    },
-    "Nova Monte Verde": {
-        "sistema": "agili",
-        "url": "https://agiliblue.agilicloud.com.br/portal/prefnovamonteverde-mt/#/certidao",
-    },
-    "Peixoto": {
-        "sistema": "gpsrv",
-        "url": "https://gp.srv.br/tributario/peixotodeazevedo/portal_serv_servico?12,53",
-        "tipo_certidao": "2",
-        "clicar_emitir": False,
-        "clicar_table_finalidade": True,
-    },
-    "Peixoto De Azevedo": {
-        "sistema": "gpsrv",
-        "url": "https://gp.srv.br/tributario/peixotodeazevedo/portal_serv_servico?12,53",
-        "tipo_certidao": "2",
-        "clicar_emitir": False,
-        "clicar_table_finalidade": True,
-    },
-    "Sinop": {
-        "sistema": "gpsrv",
-        "url": "https://www.gp.srv.br/tributario/sinop/portal_serv_servico?12,53",
-        "tipo_certidao": "2",
-        "clicar_emitir": False,
-        "clicar_table_finalidade": True,
-    },
-    "Carlinda": {
-        "sistema": "agili",
-        "url": "https://agiliblue.agilicloud.com.br/portal/prefcarlinda-mt/#/certidao",
-    },
-    "Paranaita": {
-        "sistema": "agili",
-        "url": "https://agili.paranaita.mt.gov.br/portal/paranaita/#/certidao",
-    },
-    "Paranaita-Mt": {
-        "sistema": "agili",
-        "url": "https://agili.paranaita.mt.gov.br/portal/paranaita/#/certidao",
-    },
-    # Adicione outras cidades aqui conforme for passando os links
-}
+_CIDADES_CONFIG_FILE = os.path.join(BASE_DIR, "cidades_config.json")
+
+def _carregar_cidades_config():
+    if os.path.exists(_CIDADES_CONFIG_FILE):
+        try:
+            with open(_CIDADES_CONFIG_FILE, encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+CIDADES_CONFIG = _carregar_cidades_config()
 
 # Código numérico dos estados no portal Betha
 ESTADOS_BETHA = {
