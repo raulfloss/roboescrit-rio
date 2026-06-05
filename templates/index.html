@@ -115,6 +115,11 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 .toast{position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;font-size:.88rem;font-weight:600;color:#fff;z-index:2000;box-shadow:0 4px 16px rgba(0,0,0,.2);transition:opacity .3s;pointer-events:none}
 .toast-ok{background:#059669}
 .toast-err{background:#dc2626}
+/* ── abas de certidoes ───────────────────────────────────────────── */
+.tipo-info{padding:12px 14px;border-radius:8px;background:#f8fafc;display:flex;flex-direction:column;gap:4px;font-size:.84rem}
+.tipo-info strong{font-size:.92rem;color:#1a1a2e}
+.tipo-info span{color:#666}
+.tipo-aplica{font-size:.78rem;color:#4f46e5;font-weight:600;margin-top:2px}
 </style>
 </head>
 <body>
@@ -151,6 +156,10 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 <nav class="tab-nav">
   <button class="tab-btn ativo" onclick="trocarTab('proc',this)">▶ Processamento</button>
   <button class="tab-btn" onclick="trocarTab('emp',this)">🏢 Empresas</button>
+  <button class="tab-btn" onclick="trocarTab('federal',this)">🏛 Federal</button>
+  <button class="tab-btn" onclick="trocarTab('fgts',this)">💼 FGTS</button>
+  <button class="tab-btn" onclick="trocarTab('trabalhista',this)">⚖️ Trabalhista</button>
+  <button class="tab-btn" onclick="trocarTab('estadual-mt',this)">🗺️ Estadual MT</button>
 </nav>
 
 <!-- ══ Tab: Processamento ════════════════════════════════════════════════════ -->
@@ -296,6 +305,138 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 </div>
 </div><!-- /tab-emp -->
 
+<!-- ══ Tab: Federal ══════════════════════════════════════════════════════════ -->
+<div id="tab-federal" class="tab-panel">
+<div class="wrap">
+  <div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-title">CND Federal</div>
+      <div class="tipo-info" style="border-left:4px solid #4f46e5">
+        <strong>Certidão Negativa de Débitos Tributários</strong>
+        <span>Receita Federal do Brasil</span>
+        <span class="tipo-aplica">CNPJ (empresas) + CPF (produtores rurais)</span>
+      </div>
+      <button class="btn-start" id="btn-iniciar-federal" onclick="iniciarTipo('federal')" style="margin-top:14px">
+        ▶ Iniciar Federal
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-title">Fila de Espera</div>
+      <div id="painel-federal-fila"><div class="empty">Nenhum job aguardando</div></div>
+    </div>
+  </div>
+  <div class="right-col">
+    <div class="card">
+      <div class="card-title">Em Andamento</div>
+      <div id="painel-federal-atual"><div class="empty">Nenhum processamento em execução</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Histórico</div>
+      <div id="painel-federal-hist"><div class="empty">Nenhum job concluído ainda</div></div>
+    </div>
+  </div>
+</div>
+</div><!-- /tab-federal -->
+
+<!-- ══ Tab: FGTS ═════════════════════════════════════════════════════════════ -->
+<div id="tab-fgts" class="tab-panel">
+<div class="wrap">
+  <div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-title">FGTS / CRF</div>
+      <div class="tipo-info" style="border-left:4px solid #059669">
+        <strong>Certificado de Regularidade do FGTS</strong>
+        <span>Caixa Econômica Federal</span>
+        <span class="tipo-aplica">CNPJ (empresas) + CPF (produtores rurais)</span>
+      </div>
+      <button class="btn-start" id="btn-iniciar-fgts" onclick="iniciarTipo('fgts')" style="margin-top:14px">
+        ▶ Iniciar FGTS
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-title">Fila de Espera</div>
+      <div id="painel-fgts-fila"><div class="empty">Nenhum job aguardando</div></div>
+    </div>
+  </div>
+  <div class="right-col">
+    <div class="card">
+      <div class="card-title">Em Andamento</div>
+      <div id="painel-fgts-atual"><div class="empty">Nenhum processamento em execução</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Histórico</div>
+      <div id="painel-fgts-hist"><div class="empty">Nenhum job concluído ainda</div></div>
+    </div>
+  </div>
+</div>
+</div><!-- /tab-fgts -->
+
+<!-- ══ Tab: Trabalhista ══════════════════════════════════════════════════════ -->
+<div id="tab-trabalhista" class="tab-panel">
+<div class="wrap">
+  <div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-title">Trabalhista / CNDT</div>
+      <div class="tipo-info" style="border-left:4px solid #dc2626">
+        <strong>Certidão Negativa de Débitos Trabalhistas</strong>
+        <span>Tribunal Superior do Trabalho (TST)</span>
+        <span class="tipo-aplica">CNPJ (empresas) + CPF (produtores rurais)</span>
+      </div>
+      <button class="btn-start" id="btn-iniciar-trabalhista" onclick="iniciarTipo('trabalhista')" style="margin-top:14px">
+        ▶ Iniciar Trabalhista
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-title">Fila de Espera</div>
+      <div id="painel-trabalhista-fila"><div class="empty">Nenhum job aguardando</div></div>
+    </div>
+  </div>
+  <div class="right-col">
+    <div class="card">
+      <div class="card-title">Em Andamento</div>
+      <div id="painel-trabalhista-atual"><div class="empty">Nenhum processamento em execução</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Histórico</div>
+      <div id="painel-trabalhista-hist"><div class="empty">Nenhum job concluído ainda</div></div>
+    </div>
+  </div>
+</div>
+</div><!-- /tab-trabalhista -->
+
+<!-- ══ Tab: Estadual MT ══════════════════════════════════════════════════════ -->
+<div id="tab-estadual-mt" class="tab-panel">
+<div class="wrap">
+  <div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-title">Estadual MT</div>
+      <div class="tipo-info" style="border-left:4px solid #d97706">
+        <strong>Certidão de Débitos Estaduais — Mato Grosso</strong>
+        <span>SEFAZ-MT</span>
+        <span class="tipo-aplica">CNPJ (empresas) + CPF (produtores rurais)</span>
+      </div>
+      <button class="btn-start" id="btn-iniciar-estadual-mt" onclick="iniciarTipo('estadual_mt')" style="margin-top:14px">
+        ▶ Iniciar Estadual MT
+      </button>
+    </div>
+    <div class="card">
+      <div class="card-title">Fila de Espera</div>
+      <div id="painel-estadual-mt-fila"><div class="empty">Nenhum job aguardando</div></div>
+    </div>
+  </div>
+  <div class="right-col">
+    <div class="card">
+      <div class="card-title">Em Andamento</div>
+      <div id="painel-estadual-mt-atual"><div class="empty">Nenhum processamento em execução</div></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Histórico</div>
+      <div id="painel-estadual-mt-hist"><div class="empty">Nenhum job concluído ainda</div></div>
+    </div>
+  </div>
+</div>
+</div><!-- /tab-estadual-mt -->
+
 <script>
 // ── nome salvo ────────────────────────────────────────────────────────────────
 const $nome = document.getElementById("inp-nome");
@@ -384,8 +525,8 @@ function abrirRelatorio(jid) {
   document.getElementById("modal-rel").classList.add("open");
 }
 
-function appendLog(linhas) {
-  const box = document.getElementById("log-live");
+function appendLog(linhas, boxId) {
+  const box = document.getElementById(boxId || "log-live");
   if (!box) return;
   const atBottom = box.scrollHeight - box.clientHeight <= box.scrollTop + 40;
   const frag = document.createDocumentFragment();
@@ -482,18 +623,148 @@ function renderHistorico(hist) {
 
 let _historico = [];
 
+function isGeralJob(j) { return j && j.script === "robo_geral.py"; }
+
+const TIPO_LABEL = {
+  federal:     "Federal (CND)",
+  fgts:        "FGTS (CRF)",
+  trabalhista: "Trabalhista (CNDT)",
+  estadual_mt: "Estadual MT",
+};
+
+// Estado de log independente por tipo
+const _logState = {};
+["federal","fgts","trabalhista","estadual_mt"].forEach(t => {
+  _logState[t] = { offset: 0, jobId: null, timer: null };
+});
+
+function _tipoSlug(tipo) { return tipo.replace(/_/g, "-"); }
+function _panelId(tipo, sufixo) { return `painel-${_tipoSlug(tipo)}-${sufixo}`; }
+function _logId(tipo) { return `log-${_tipoSlug(tipo)}-live`; }
+
+function renderTipoAtual(tipo, job) {
+  const el = document.getElementById(_panelId(tipo, "atual"));
+  if (!el) return;
+  if (!job) { el.innerHTML = '<div class="empty">Nenhum processamento em execução</div>'; return; }
+  const feitos = (job.sucesso||0) + (job.erros||0);
+  const pct    = job.total > 0 ? Math.round(feitos / job.total * 100) : 0;
+  el.innerHTML = `
+    <div class="job-header">
+      <div><div class="job-user">${job.usuario}</div><div class="job-mode">${TIPO_LABEL[tipo]||tipo}</div></div>
+      <div style="display:flex;align-items:center;gap:10px">
+        ${badge(job.status)}
+        ${job.status==="rodando"?'<button class="btn-parar" onclick="pararJob()">⏹ Parar</button>':""}
+      </div>
+    </div>
+    ${job.total>0?`
+    <div class="stat-row">
+      <div class="stat"><strong>${job.sucesso||0}</strong><span>Certidões</span></div>
+      <div class="stat"><strong>${job.erros||0}</strong><span>Erros</span></div>
+      <div class="stat"><strong>${feitos}/${job.total}</strong><span>Processados</span></div>
+      <div class="stat"><strong>${pct}%</strong><span>Progresso</span></div>
+    </div>
+    <div class="progress"><div class="progress-fill" style="width:${pct}%"></div></div>`:""}
+    <div class="log-box" id="${_logId(tipo)}"></div>`;
+  iniciarLogTipo(tipo, job.id);
+}
+
+function renderTipoFila(tipo, filaFiltrada) {
+  const el = document.getElementById(_panelId(tipo, "fila"));
+  if (!el) return;
+  if (!filaFiltrada.length) { el.innerHTML = '<div class="empty">Nenhum job aguardando</div>'; return; }
+  el.innerHTML = filaFiltrada.map((j,i) => `
+    <div class="queue-item">
+      <div class="q-num">${i+1}</div>
+      <div><strong>${j.usuario}</strong> <span style="color:#888">— ${TIPO_LABEL[tipo]||tipo}</span></div>
+    </div>`).join("");
+}
+
+function renderTipoHistorico(tipo, hist) {
+  const el = document.getElementById(_panelId(tipo, "hist"));
+  if (!el) return;
+  const lista = hist.filter(j => isGeralJob(j) && j.modo === tipo);
+  if (!lista.length) { el.innerHTML = '<div class="empty">Nenhum job concluído ainda</div>'; return; }
+  el.innerHTML = `<table>
+    <thead><tr><th>Início</th><th>Usuário</th><th>Status</th><th>Certidões</th><th>Erros</th><th>Download</th></tr></thead>
+    <tbody>${lista.map(j=>`<tr>
+      <td>${j.inicio||"—"}</td>
+      <td><strong>${j.usuario}</strong></td>
+      <td>${badge(j.status)}</td>
+      <td style="color:#059669;font-weight:700">${j.sucesso||0}/${j.total||0}</td>
+      <td style="color:${j.erros>0?"#dc2626":"#888"};font-weight:700">${j.erros||0}</td>
+      <td style="display:flex;gap:6px;flex-wrap:wrap">
+        ${j.pdfs&&j.pdfs.length?`<a class="btn-dl" href="/api/download/${j.id}">⬇ ${j.pdfs.length} PDFs</a>`:""}
+        <button class="btn-rel" onclick="abrirRelatorio('${j.id}')">📋 Relatório</button>
+      </td>
+    </tr>`).join("")}</tbody>
+  </table>`;
+}
+
+function iniciarLogTipo(tipo, jid) {
+  const s = _logState[tipo];
+  if (jid === s.jobId) return;
+  s.offset = 0; s.jobId = jid;
+  if (s.timer) clearInterval(s.timer);
+  s.timer = setInterval(() => buscarLogTipo(tipo, jid), 1000);
+}
+
+async function buscarLogTipo(tipo, jid) {
+  const s = _logState[tipo];
+  try {
+    const r = await fetch(`/api/logs/${jid}?offset=${s.offset}`);
+    const d = await r.json();
+    if (d.linhas.length) { appendLog(d.linhas, _logId(tipo)); s.offset += d.linhas.length; }
+    if (d.concluido) {
+      clearInterval(s.timer); s.timer = null; s.jobId = null;
+      await atualizarStatus(); mostrarAviso(jid);
+    }
+  } catch(e) {}
+}
+
+async function iniciarTipo(tipo) {
+  const nome = $nome.value.trim();
+  if (!nome) { alert("Informe seu nome (aba Processamento) antes de iniciar."); return; }
+  const btnEl = document.getElementById(`btn-iniciar-${_tipoSlug(tipo)}`);
+  if (btnEl) btnEl.disabled = true;
+  try {
+    const r = await fetch("/api/iniciar_geral", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ usuario: nome, tipos: [tipo] })
+    });
+    const d = await r.json();
+    if (d.erro) { alert(d.erro); return; }
+    atualizarStatus();
+  } catch(e) { alert("Erro ao conectar com o servidor."); }
+  finally { if (btnEl) btnEl.disabled = false; }
+}
+
 async function atualizarStatus() {
   try {
     const r = await fetch("/api/status");
     const d = await r.json();
     _historico = d.historico || [];
-    renderAtual(d.job_atual);
-    renderFila(d.fila);
-    renderHistorico(_historico);
+
+    // Aba Processamento — apenas jobs municipais
+    const jobMun = d.job_atual && !isGeralJob(d.job_atual) ? d.job_atual : null;
+    renderAtual(jobMun);
+    renderFila((d.fila||[]).filter(j => !isGeralJob(j)));
+    renderHistorico(_historico.filter(j => !isGeralJob(j)));
+
+    // Abas por tipo — filtra por tipo.modo === tipo
+    ["federal","fgts","trabalhista","estadual_mt"].forEach(tipo => {
+      const jobT = d.job_atual && isGeralJob(d.job_atual) && d.job_atual.modo === tipo
+                   ? d.job_atual : null;
+      renderTipoAtual(tipo, jobT);
+      renderTipoFila(tipo, (d.fila||[]).filter(j => isGeralJob(j) && j.modo === tipo));
+      renderTipoHistorico(tipo, _historico);
+    });
   } catch(e) {}
 }
 
-setInterval(() => { if (!logTimer) atualizarStatus(); }, 3000);
+setInterval(() => {
+  const algumLogAtivo = Object.values(_logState).some(s => s.timer);
+  if (!logTimer && !algumLogAtivo) atualizarStatus();
+}, 3000);
 atualizarStatus();
 
 // ── tabs ──────────────────────────────────────────────────────────────────────
@@ -503,6 +774,7 @@ function trocarTab(id, btn) {
   document.getElementById("tab-" + id).classList.add("ativo");
   btn.classList.add("ativo");
   if (id === "emp") carregarEmpresas();
+  if (["federal","fgts","trabalhista","estadual-mt"].includes(id)) atualizarStatus();
 }
 
 // ── verificação de cidade ─────────────────────────────────────────────────────

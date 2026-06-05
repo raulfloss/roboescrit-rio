@@ -118,8 +118,11 @@ def _rodar_job(job):
     env["PYTHONUNBUFFERED"] = "1"
     env["ROBO_JOB_ID"]      = jid
 
-    args = [sys.executable, os.path.join(BASE_DIR, "robo.py")]
-    if job["modo"] == "cnpj":
+    script_name = job.get("script", "robo.py")
+    args = [sys.executable, os.path.join(BASE_DIR, script_name)]
+    if script_name == "robo_geral.py":
+        args.append(job["modo"])
+    elif job["modo"] == "cnpj":
         args += ["cnpj", job.get("cnpj", "")]
     else:
         args.append(job["modo"])
@@ -164,7 +167,7 @@ def _rodar_job(job):
                     job["total"] = int(linha.split("|")[1].strip().split()[0])
                 except Exception:
                     pass
-            if "Certidão" in linha and "salva:" in linha:
+            if ("Certidão" in linha or "Certidao" in linha) and "salva:" in linha:
                 job["sucesso"] = job.get("sucesso", 0) + 1
             if "TIMEOUT:" in linha:
                 job["erros"] = job.get("erros", 0) + 1
@@ -178,7 +181,7 @@ def _rodar_job(job):
             elif "não encontrado na base" in linha.lower() or "nao encontrado" in linha.lower():
                 if cnpj_atual:
                     erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ não encontrado no portal"})
-            elif "com débitos" in linha.lower():
+            elif "com débitos" in linha.lower() or "com debitos" in linha.lower():
                 if cnpj_atual:
                     erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ com débitos"})
             elif "sem portal" in linha.lower() or "não suportado" in linha.lower() or "nao suportado" in linha.lower():
@@ -428,6 +431,30 @@ def api_empresas_adicionar():
         cfg = _ler_cidades()
     tem_portal = nome_cidade in cfg or estado in ESTADOS_BETHA
     return jsonify({"ok": True, "sem_portal": not tem_portal})
+
+@app.route("/api/iniciar_geral", methods=["POST"])
+@login_required
+def api_iniciar_geral():
+    data    = request.get_json() or {}
+    usuario = (data.get("usuario") or "Usuário").strip()[:40]
+    tipos   = [t for t in (data.get("tipos") or [])
+               if t in ("federal", "fgts", "trabalhista", "estadual_mt")]
+    if not tipos:
+        return jsonify({"erro": "Selecione ao menos um tipo de certidão"}), 400
+    job = {
+        "id":      uuid.uuid4().hex[:8],
+        "usuario": usuario,
+        "script":  "robo_geral.py",
+        "modo":    ",".join(tipos),
+        "status":  "aguardando",
+        "inicio":  None, "fim": None,
+        "total":   0,    "sucesso": 0, "erros": 0,
+        "pdfs":    [],
+    }
+    with _lock:
+        fila.append(job)
+        _verificar_fila()
+    return jsonify({"ok": True, "job_id": job["id"]})
 
 @app.route("/api/empresas/<cnpj>", methods=["DELETE"])
 @login_required
