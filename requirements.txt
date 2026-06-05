@@ -1,0 +1,8 @@
+flask
+playwright
+pandas
+openpyxl
+requests
+anticaptchaofficial
+pypdf
+Pillow

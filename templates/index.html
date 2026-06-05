@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Robô de Certidões</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
+header{background:#1a1a2e;color:#fff;padding:14px 28px;display:flex;align-items:center;gap:12px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+header h1{font-size:1.1rem;font-weight:600}
+header small{font-size:.8rem;opacity:.6;margin-left:6px}
+#hd-usuario{margin-left:auto;font-size:.85rem;opacity:.8}
+.wrap{max-width:1120px;margin:0 auto;padding:22px 16px;display:grid;grid-template-columns:340px 1fr;gap:18px}
+.card{background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.card-title{font-size:.78rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#888;margin-bottom:16px}
+label{display:block;font-size:.83rem;font-weight:500;color:#444;margin-bottom:4px}
+input,select{width:100%;padding:9px 12px;border:1.5px solid #e0e0e0;border-radius:8px;font-size:.88rem;outline:none;transition:border-color .2s;background:#fff}
+input:focus,select:focus{border-color:#4f46e5}
+.field{margin-bottom:13px}
+.btn-start{width:100%;padding:11px;background:#4f46e5;color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:700;cursor:pointer;transition:background .2s;margin-top:4px}
+.btn-start:hover{background:#4338ca}
+.btn-start:disabled{background:#a5a3d6;cursor:not-allowed}
+.badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:.72rem;font-weight:700}
+.b-rodando{background:#dbeafe;color:#1d4ed8}
+.b-aguardando{background:#fef3c7;color:#92400e}
+.b-concluido{background:#d1fae5;color:#065f46}
+.b-erro{background:#fee2e2;color:#991b1b}
+.log-box{background:#0d1117;color:#8bc34a;font-family:'Courier New',monospace;font-size:.75rem;padding:12px;border-radius:8px;height:260px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+.log-erro{color:#ff7070}
+.log-ok{color:#69f0ae}
+.log-aviso{color:#ffd54f}
+.log-info{color:#80cbc4}
+.progress{height:5px;background:#e5e7eb;border-radius:3px;margin:8px 0 4px}
+.progress-fill{height:100%;background:#4f46e5;border-radius:3px;transition:width .4s}
+.stat-row{display:flex;gap:16px;margin-bottom:10px;font-size:.83rem}
+.stat{text-align:center}
+.stat strong{display:block;font-size:1.2rem;color:#1a1a2e}
+.stat span{color:#888;font-size:.75rem}
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+th{text-align:left;padding:7px 10px;border-bottom:2px solid #e5e7eb;color:#777;font-weight:600;font-size:.75rem;text-transform:uppercase;letter-spacing:.04em}
+td{padding:9px 10px;border-bottom:1px solid #f3f3f3;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.queue-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f3f3f3;font-size:.85rem}
+.queue-item:last-child{border-bottom:none}
+.q-num{width:24px;height:24px;background:#e5e7eb;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800;flex-shrink:0}
+.empty{color:#bbb;font-size:.84rem;text-align:center;padding:14px 0}
+.btn-dl{padding:4px 12px;background:#ede9fe;color:#4f46e5;border:none;border-radius:6px;font-size:.78rem;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block}
+.btn-dl:hover{background:#ddd6fe}
+.right-col{display:flex;flex-direction:column;gap:18px}
+.job-header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px}
+.job-user{font-weight:700;font-size:.95rem}
+.job-mode{color:#666;font-size:.82rem;margin-top:2px}
+@media(max-width:720px){.wrap{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+    <rect x="3" y="3" width="18" height="18" rx="3" fill="#4f46e5"/>
+    <path d="M7 8h10M7 12h10M7 16h6" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
+  </svg>
+  <div>
+    <h1>Robô de Certidões Negativas<small>escritório</small></h1>
+  </div>
+  <div id="hd-usuario"></div>
+</header>
+
+<div class="wrap">
+
+  <!-- ── Coluna esquerda ───────────────────────────── -->
+  <div>
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-title">Nova Solicitação</div>
+
+      <div class="field">
+        <label>Seu nome</label>
+        <input id="inp-nome" type="text" placeholder="Ex: Ana" maxlength="40" autocomplete="off">
+      </div>
+
+      <div class="field">
+        <label>Modo</label>
+        <select id="sel-modo" onchange="toggleCnpj()">
+          <option value="todas">Todos os CNPJs</option>
+          <option value="apiacas">Apenas Apiacas</option>
+          <option value="outras">Todas menos Apiacas</option>
+          <option value="cnpj">CNPJ específico</option>
+        </select>
+      </div>
+
+      <div class="field" id="div-cnpj" style="display:none">
+        <label>CNPJ</label>
+        <input id="inp-cnpj" type="text" placeholder="00.000.000/0000-00" maxlength="18">
+      </div>
+
+      <button class="btn-start" id="btn-iniciar" onclick="iniciar()">▶ Iniciar Processamento</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Fila de Espera</div>
+      <div id="painel-fila"><div class="empty">Nenhum job aguardando</div></div>
+    </div>
+  </div>
+
+  <!-- ── Coluna direita ──────────────────────────────── -->
+  <div class="right-col">
+
+    <div class="card">
+      <div class="card-title">Em Andamento</div>
+      <div id="painel-atual"><div class="empty">Nenhum processamento em execução</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Histórico</div>
+      <div id="painel-hist"><div class="empty">Nenhum job concluído ainda</div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── nome salvo ────────────────────────────────────────────────────────────────
+const $nome = document.getElementById("inp-nome");
+$nome.value = localStorage.getItem("robo_nome") || "";
+atualizarHeader();
+$nome.addEventListener("input", () => { localStorage.setItem("robo_nome", $nome.value); atualizarHeader(); });
+
+function atualizarHeader() {
+  document.getElementById("hd-usuario").textContent = $nome.value ? "Olá, " + $nome.value : "";
+}
+
+function toggleCnpj() {
+  document.getElementById("div-cnpj").style.display =
+    document.getElementById("sel-modo").value === "cnpj" ? "block" : "none";
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+const MODO_LABEL = { todas:"Todos os CNPJs", apiacas:"Apiacas", outras:"Outras cidades", cnpj:"CNPJ específico" };
+
+function badge(status) {
+  const cls   = { rodando:"b-rodando", aguardando:"b-aguardando", concluido:"b-concluido", erro:"b-erro" };
+  const label = { rodando:"Rodando", aguardando:"Na fila", concluido:"Concluído", erro:"Erro" };
+  return `<span class="badge ${cls[status]||""}">${label[status]||status}</span>`;
+}
+
+function classeLinha(l) {
+  if (/ERRO:|TIMEOUT:|Falha/.test(l))         return "log-erro";
+  if (/salva:|negativa|Certidão/.test(l))      return "log-ok";
+  if (/débitos|pulando|não encontrado/.test(l))return "log-aviso";
+  if (/^\[/.test(l))                           return "log-info";
+  return "";
+}
+
+// ── log ao vivo ───────────────────────────────────────────────────────────────
+let logOffset  = 0;
+let logJobId   = null;
+let logTimer   = null;
+
+function iniciarLog(jid) {
+  if (jid === logJobId) return;
+  logOffset = 0;
+  logJobId  = jid;
+  if (logTimer) clearInterval(logTimer);
+  logTimer = setInterval(() => buscarLog(jid), 1000);
+}
+
+async function buscarLog(jid) {
+  try {
+    const r = await fetch(`/api/logs/${jid}?offset=${logOffset}`);
+    const d = await r.json();
+    if (d.linhas.length) {
+      appendLog(d.linhas);
+      logOffset += d.linhas.length;
+    }
+    if (d.concluido) {
+      clearInterval(logTimer);
+      logTimer = null;
+      logJobId = null;
+      atualizarStatus();
+    }
+  } catch(e) {}
+}
+
+function appendLog(linhas) {
+  const box = document.getElementById("log-live");
+  if (!box) return;
+  const atBottom = box.scrollHeight - box.clientHeight <= box.scrollTop + 40;
+  const frag = document.createDocumentFragment();
+  linhas.forEach(l => {
+    const s = document.createElement("span");
+    s.className = classeLinha(l);
+    s.textContent = l + "\n";
+    frag.appendChild(s);
+  });
+  box.appendChild(frag);
+  if (atBottom) box.scrollTop = box.scrollHeight;
+}
+
+// ── iniciar ───────────────────────────────────────────────────────────────────
+async function iniciar() {
+  const nome = $nome.value.trim();
+  const modo = document.getElementById("sel-modo").value;
+  const cnpj = document.getElementById("inp-cnpj").value.trim();
+  if (!nome) { alert("Informe seu nome antes de iniciar."); return; }
+  if (modo === "cnpj" && !cnpj) { alert("Informe o CNPJ."); return; }
+
+  const btn = document.getElementById("btn-iniciar");
+  btn.disabled = true;
+  try {
+    const r = await fetch("/api/iniciar", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ usuario:nome, modo, cnpj })
+    });
+    const d = await r.json();
+    if (d.erro) { alert(d.erro); return; }
+    atualizarStatus();
+  } catch(e) { alert("Erro ao conectar com o servidor."); }
+  finally { btn.disabled = false; }
+}
+
+// ── renderização ──────────────────────────────────────────────────────────────
+function renderAtual(job) {
+  const el = document.getElementById("painel-atual");
+  if (!job) { el.innerHTML = '<div class="empty">Nenhum processamento em execução</div>'; return; }
+  const feitos = (job.sucesso||0) + (job.erros||0);
+  const pct    = job.total > 0 ? Math.round(feitos / job.total * 100) : 0;
+  el.innerHTML = `
+    <div class="job-header">
+      <div><div class="job-user">${job.usuario}</div><div class="job-mode">${MODO_LABEL[job.modo]||job.modo}${job.cnpj ? " — " + job.cnpj : ""}</div></div>
+      ${badge(job.status)}
+    </div>
+    ${job.total > 0 ? `
+    <div class="stat-row">
+      <div class="stat"><strong>${job.sucesso||0}</strong><span>Certidões</span></div>
+      <div class="stat"><strong>${job.erros||0}</strong><span>Erros</span></div>
+      <div class="stat"><strong>${feitos}/${job.total}</strong><span>CNPJs</span></div>
+      <div class="stat"><strong>${pct}%</strong><span>Progresso</span></div>
+    </div>
+    <div class="progress"><div class="progress-fill" style="width:${pct}%"></div></div>` : ""}
+    <div class="log-box" id="log-live"></div>`;
+  iniciarLog(job.id);
+}
+
+function renderFila(fila) {
+  const el = document.getElementById("painel-fila");
+  if (!fila.length) { el.innerHTML = '<div class="empty">Nenhum job aguardando</div>'; return; }
+  el.innerHTML = fila.map((j,i) => `
+    <div class="queue-item">
+      <div class="q-num">${i+1}</div>
+      <div><strong>${j.usuario}</strong> <span style="color:#888">— ${MODO_LABEL[j.modo]||j.modo}</span></div>
+    </div>`).join("");
+}
+
+function renderHistorico(hist) {
+  const el = document.getElementById("painel-hist");
+  if (!hist.length) { el.innerHTML = '<div class="empty">Nenhum job concluído ainda</div>'; return; }
+  el.innerHTML = `<table>
+    <thead><tr><th>Início</th><th>Usuário</th><th>Modo</th><th>Status</th><th>Certidões</th><th>Erros</th><th>Download</th></tr></thead>
+    <tbody>${hist.map(j=>`<tr>
+      <td>${j.inicio||"—"}</td>
+      <td><strong>${j.usuario}</strong></td>
+      <td>${MODO_LABEL[j.modo]||j.modo}${j.cnpj?" <small>("+j.cnpj+")</small>":""}</td>
+      <td>${badge(j.status)}</td>
+      <td style="color:#059669;font-weight:700">${j.sucesso||0}/${j.total||0}</td>
+      <td style="color:${j.erros>0?"#dc2626":"#888"};font-weight:700">${j.erros||0}</td>
+      <td>${j.pdfs&&j.pdfs.length?`<a class="btn-dl" href="/api/download/${j.id}">⬇ ${j.pdfs.length} PDFs</a>`:"—"}</td>
+    </tr>`).join("")}</tbody>
+  </table>`;
+}
+
+// ── polling ───────────────────────────────────────────────────────────────────
+async function atualizarStatus() {
+  try {
+    const r = await fetch("/api/status");
+    const d = await r.json();
+    renderAtual(d.job_atual);
+    renderFila(d.fila);
+    renderHistorico(d.historico);
+  } catch(e) {}
+}
+
+setInterval(() => { if (!logTimer) atualizarStatus(); }, 3000);
+atualizarStatus();
+</script>
+</body>
+</html>
