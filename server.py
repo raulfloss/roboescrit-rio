@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify, send_file, abort, se
 from functools import wraps
 import subprocess, threading, json, os, sys, uuid, io, zipfile, re, time, socket
 from datetime import datetime
+import unicodedata
 import pandas as pd
 
 app = Flask(__name__)
@@ -38,11 +39,27 @@ CIDADES_CONFIG_FILE = os.path.join(BASE_DIR, "cidades_config.json")
 ESTADOS_BETHA       = {"MT", "MS"}
 _cidades_lock       = threading.Lock()
 
+def _norm_str(s):
+    """Remove acentos e coloca em minúsculo — igual ao normalizar() do robo.py."""
+    s = unicodedata.normalize("NFD", str(s))
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return s.lower().strip()
+
 def _ler_excel():
     if not os.path.exists(ARQUIVO_EXCEL):
         return pd.DataFrame(columns=[COLUNA_CNPJ, COLUNA_NOME, COLUNA_CIDADE])
     try:
-        return pd.read_excel(ARQUIVO_EXCEL, dtype=str).fillna("")
+        df = pd.read_excel(ARQUIVO_EXCEL, dtype=str).fillna("")
+        # Renomeia colunas para os nomes esperados, ignorando acentos e capitalização
+        esperadas = [COLUNA_CNPJ, COLUNA_NOME, COLUNA_CIDADE]
+        rename = {}
+        for col in df.columns:
+            for esp in esperadas:
+                if _norm_str(col) == _norm_str(esp) and col != esp:
+                    rename[col] = esp
+        if rename:
+            df = df.rename(columns=rename)
+        return df
     except Exception:
         return pd.DataFrame(columns=[COLUNA_CNPJ, COLUNA_NOME, COLUNA_CIDADE])
 
@@ -321,9 +338,12 @@ def api_download(jid):
 # ── cidades / portais ────────────────────────────────────────────────────────
 
 def _nome_cidade(cidade_uf):
-    """Extrai e normaliza o nome da cidade de 'Sinop/MT' → 'Sinop'."""
+    """Extrai, remove acentos e normaliza o nome da cidade de 'Sinop/MT' → 'Sinop'."""
     partes = str(cidade_uf).strip().replace("-", "/").split("/")
-    return partes[0].strip().title()
+    nome = partes[0].strip()
+    nome = unicodedata.normalize("NFD", nome)
+    nome = "".join(c for c in nome if unicodedata.category(c) != "Mn")
+    return nome.title()
 
 def _estado_cidade(cidade_uf):
     partes = str(cidade_uf).strip().replace("-", "/").split("/")

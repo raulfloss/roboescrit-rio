@@ -510,15 +510,15 @@ let _cidadesCache   = null;
 let _cidadeTimer    = null;
 let _estadoAtual    = "";
 
-function parseCidadeUF(val) {
-  const sep = val.includes("/") ? "/" : val.includes("-") ? "-" : null;
-  if (!sep) return [val.trim().toLowerCase(), ""];
-  const p = val.split(sep);
-  return [p[0].trim().toLowerCase(), (p[p.length-1].trim().toUpperCase().slice(0,2))];
+function normalizar(s) {
+  return (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
-function titleCase(s) {
-  return s.replace(/\w\S*/g, t => t.charAt(0).toUpperCase() + t.slice(1).toLowerCase());
+function parseCidadeUF(val) {
+  const sep = val.includes("/") ? "/" : val.includes("-") ? "-" : null;
+  if (!sep) return [normalizar(val), ""];
+  const p = val.split(sep);
+  return [normalizar(p[0]), p[p.length-1].trim().toUpperCase().slice(0,2)];
 }
 
 async function _carregarCidades() {
@@ -552,10 +552,8 @@ async function verificarCidade() {
   _estadoAtual = estado;
   const dados = await _carregarCidades();
 
-  // Verifica se cidade está nos configs (comparação case-insensitive)
-  const chave = Object.keys(dados.configs || {}).find(
-    k => k.toLowerCase() === cidade || k.toLowerCase() === titleCase(cidade).toLowerCase()
-  );
+  // Verifica se cidade está nos configs (normaliza acentos dos dois lados)
+  const chave = Object.keys(dados.configs || {}).find(k => normalizar(k) === cidade);
 
   statusEl.className    = "cidade-status";
   portalBox.style.display = "none";
@@ -638,9 +636,7 @@ function filtrarEmpresas() {
 function _badgePortal(cidadeUF) {
   if (!_cidadesCache) return '<span style="color:#bbb;font-size:.75rem">—</span>';
   const [cidade, estado] = parseCidadeUF(cidadeUF || "");
-  const chave = Object.keys(_cidadesCache.configs || {}).find(
-    k => k.toLowerCase() === cidade || k.toLowerCase() === titleCase(cidade).toLowerCase()
-  );
+  const chave = Object.keys(_cidadesCache.configs || {}).find(k => normalizar(k) === cidade);
   if (chave) {
     const sys = (_cidadesCache.configs[chave].sistema || "").toUpperCase();
     return `<span style="background:#d1fae5;color:#065f46;font-size:.72rem;font-weight:700;padding:2px 8px;border-radius:12px">${sys}</span>`;
