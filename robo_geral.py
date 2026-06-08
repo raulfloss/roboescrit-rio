@@ -8,9 +8,11 @@ Uso:
 """
 
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
 import pandas as pd
 import unicodedata
+import tempfile
 import base64
 import shutil
 import sys
@@ -360,17 +362,33 @@ def baixar_fgts(page, context, doc, caminho):
 
 # ── Fluxo: Trabalhista ────────────────────────────────────────────────────────
 
-def _resolver_captcha_tst(page):
-    """Resolve o captcha de imagem do TST via Anti-Captcha (mesmo padrao do robo.py)."""
+def _capturar_img_captcha_tst(page):
+    """Extrai imagem do captcha TST direto do src base64. Retorna bytes ou None."""
+    try:
+        img = page.locator('[id="idImgBase64"]')
+        img.wait_for(state="visible", timeout=10000)
+        # Aguarda o src ser preenchido com a imagem base64 real
+        page.wait_for_function(
+            "() => { const el = document.getElementById('idImgBase64'); "
+            "return el && el.src && el.src.length > 200; }",
+            timeout=10000,
+        )
+        src = img.get_attribute("src", timeout=5000)
+        if not src or "," not in src:
+            return None
+        return base64.b64decode(src.split(",", 1)[1].strip())
+    except Exception as e:
+        print(f"  AVISO: imagem captcha nao encontrada ({e})")
+        return None
+
+
+def _enviar_captcha_anticaptcha(img_bytes):
+    """Envia bytes da imagem para Anti-Captcha e retorna o texto. Roda em thread."""
     if not ANTI_CAPTCHA_KEY:
         print("  AVISO: ANTI_CAPTCHA_KEY nao configurada — defina a variavel de ambiente.")
         return ""
     try:
-        import tempfile
         from anticaptchaofficial.imagecaptcha import imagecaptcha
-        img = page.locator('[id="idImgBase64"]')
-        img.wait_for(state="visible", timeout=10000)
-        img_bytes = img.screenshot(timeout=10000)
         tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
         tmp.write(img_bytes)
         tmp.close()
@@ -402,11 +420,23 @@ def baixar_trabalhista(page, context, doc, caminho):
         except PlaywrightTimeout:
             return "nao_encontrado"
         campo.click()
-        campo.press_sequentially(doc_limpo, delay=285)
 
-        captcha_text = _resolver_captcha_tst(page)
-        if not captcha_text:
+        # Captura screenshot do captcha (thread principal) e envia ao Anti-Captcha
+        # em background — enquanto isso digita o CNPJ (ambos em paralelo)
+        img_bytes = _capturar_img_captcha_tst(page)
+        if not img_bytes:
             return "nao_encontrado"
+
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_enviar_captcha_anticaptcha, img_bytes)
+            campo.press_sequentially(doc_limpo, delay=285)
+            try:
+                captcha_text = future.result(timeout=90)
+            except FutureTimeout:
+                captcha_text = ""
+
+        if not captcha_text:
+            continue
 
         page.get_by_role("textbox", name="* Digite os caracteres").fill(captcha_text)
 
