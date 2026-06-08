@@ -995,11 +995,12 @@ def _criar_perfil_chrome_minimo():
         print(f"  AVISO: nao foi possivel copiar perfil Chrome ({e})")
         return None
 
-def _launch_chrome_cdp(porta=9222):
+def _launch_chrome_cdp(porta=9222, exe=None):
     """Lança Chrome via subprocess com remote-debugging (sem flags de automação Playwright).
     Usa --user-data-dir isolado para garantir nova instância mesmo que Chrome já esteja aberto.
     Copia cookies do Chrome real para o perfil CDP."""
-    if not _chrome_exe:
+    exe = exe or _chrome_exe
+    if not exe:
         return None, None
     try:
         tmp_dir = tempfile.mkdtemp(prefix="robo_cdp_")
@@ -1019,7 +1020,7 @@ def _launch_chrome_cdp(porta=9222):
             except Exception:
                 pass
         cmd = [
-            _chrome_exe,
+            exe,
             f"--remote-debugging-port={porta}",
             f"--user-data-dir={tmp_dir}",
             "--no-first-run",
@@ -1048,8 +1049,12 @@ with sync_playwright() as p:
     context      = None
 
     # Tenta abordagem CDP: Chrome lançado sem flags de automação Playwright
-    if _chrome_exe:
-        _chrome_proc, _cdp_tmp_dir = _launch_chrome_cdp(9222)
+    # Se não achou Chrome/Chromium no sistema, usa o binário bundled do Playwright
+    _cdp_exe = _chrome_exe or p.chromium.executable_path
+    if _cdp_exe:
+        if not _chrome_exe:
+            print(f"  Usando Chromium bundled do Playwright para CDP: {_cdp_exe}")
+        _chrome_proc, _cdp_tmp_dir = _launch_chrome_cdp(9222, exe=_cdp_exe)
         if _chrome_proc:
             time.sleep(4)  # Aguarda Chrome inicializar
             try:
