@@ -757,34 +757,41 @@ def baixar_trabalhista(page, context, doc, caminho):
 
 def baixar_sefaz_mt(page, context, doc, caminho):
     """CND Estadual MT — SEFAZ-MT (sefaz.mt.gov.br)."""
-    page.goto(URL_SEFAZ_MT, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(1000)
+    # Retry para ERR_CONNECTION_RESET (servidor bloqueia navegações muito rápidas)
+    for tentativa in range(3):
+        try:
+            page.goto(URL_SEFAZ_MT, wait_until="domcontentloaded", timeout=30000)
+            break
+        except Exception as e:
+            if tentativa < 2:
+                print(f"  SEFAZ-MT: conexão recusada, aguardando {(tentativa+1)*4}s...")
+                page.wait_for_timeout((tentativa + 1) * 4000)
+            else:
+                return "nao_encontrado"
+    page.wait_for_timeout(1500)
 
     eh_cpf = len(re.sub(r"\D", "", doc)) == 11
 
-    # Seleciona tipo (CPF/CNPJ) se existir radio ou select na pagina
+    # Seleciona radio CPF ou CNPJ pelo value/label
     try:
-        if eh_cpf:
-            page.get_by_role("radio", name=re.compile(r"cpf|f[íi]sica", re.I)).first.check()
-        else:
-            page.get_by_role("radio", name=re.compile(r"cnpj|j[uú]ridica", re.I)).first.check()
+        radio_val = "CPF" if eh_cpf else "CNPJ"
+        page.locator(f'input[type="radio"][value="{radio_val}" i]').first.check()
         page.wait_for_timeout(400)
     except Exception:
-        pass
+        try:
+            lbl = re.compile(r"cpf|f[íi]sica", re.I) if eh_cpf else re.compile(r"cnpj|j[uú]ridica", re.I)
+            page.get_by_role("radio", name=lbl).first.check()
+            page.wait_for_timeout(400)
+        except Exception:
+            pass
 
-    try:
-        sel = page.locator('select[name*="tipo" i], select[id*="tipo" i]').first
-        if sel.is_visible(timeout=1500):
-            sel.select_option(index=(1 if eh_cpf else 2))
-            page.wait_for_timeout(300)
-    except Exception:
-        pass
-
-    # Campo de documento
+    # Campo de documento — exclui radio/checkbox explicitamente
     campo = page.locator(
-        'input[name*="cpfcnpj" i], input[name*="documento" i], '
-        'input[id*="cpf" i], input[id*="cnpj" i], '
-        'input[placeholder*="CPF"], input[placeholder*="CNPJ"], '
+        'input[type="text"][name*="cpfcnpj" i], '
+        'input[type="text"][name*="documento" i], '
+        'input[type="text"][name*="numero" i], '
+        'input[type="text"][placeholder*="CPF" i], '
+        'input[type="text"][placeholder*="CNPJ" i], '
         'input[type="text"]:visible'
     ).first
     try:
