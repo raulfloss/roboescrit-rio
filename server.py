@@ -438,7 +438,7 @@ def api_iniciar_geral():
     data    = request.get_json() or {}
     usuario = (data.get("usuario") or "Usuário").strip()[:40]
     tipos   = [t for t in (data.get("tipos") or [])
-               if t in ("federal", "fgts", "trabalhista", "estadual_mt")]
+               if t in ("fgts", "trabalhista", "estadual_mt")]
     if not tipos:
         return jsonify({"erro": "Selecione ao menos um tipo de certidão"}), 400
     job = {

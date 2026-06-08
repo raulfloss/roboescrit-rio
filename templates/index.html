@@ -156,7 +156,6 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 <nav class="tab-nav">
   <button class="tab-btn ativo" onclick="trocarTab('proc',this)">🏙️ Municipais</button>
   <button class="tab-btn" onclick="trocarTab('emp',this)">🏢 Empresas</button>
-  <button class="tab-btn" onclick="trocarTab('federal',this)">🏛 Federal</button>
   <button class="tab-btn" onclick="trocarTab('fgts',this)">💼 FGTS</button>
   <button class="tab-btn" onclick="trocarTab('trabalhista',this)">⚖️ Trabalhista</button>
   <button class="tab-btn" onclick="trocarTab('estadual-mt',this)">🗺️ Estadual MT</button>
@@ -305,38 +304,6 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 </div>
 </div><!-- /tab-emp -->
 
-<!-- ══ Tab: Federal ══════════════════════════════════════════════════════════ -->
-<div id="tab-federal" class="tab-panel">
-<div class="wrap">
-  <div>
-    <div class="card" style="margin-bottom:18px">
-      <div class="card-title">CND Federal</div>
-      <div class="tipo-info" style="border-left:4px solid #4f46e5">
-        <strong>Certidão Negativa de Débitos Tributários</strong>
-        <span>Receita Federal do Brasil</span>
-        <span class="tipo-aplica">CNPJ (empresas) + CPF (produtores rurais)</span>
-      </div>
-      <button class="btn-start" id="btn-iniciar-federal" onclick="iniciarTipo('federal')" style="margin-top:14px">
-        ▶ Iniciar Federal
-      </button>
-    </div>
-    <div class="card">
-      <div class="card-title">Fila de Espera</div>
-      <div id="painel-federal-fila"><div class="empty">Nenhum job aguardando</div></div>
-    </div>
-  </div>
-  <div class="right-col">
-    <div class="card">
-      <div class="card-title">Em Andamento</div>
-      <div id="painel-federal-atual"><div class="empty">Nenhum processamento em execução</div></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Histórico</div>
-      <div id="painel-federal-hist"><div class="empty">Nenhum job concluído ainda</div></div>
-    </div>
-  </div>
-</div>
-</div><!-- /tab-federal -->
 
 <!-- ══ Tab: FGTS ═════════════════════════════════════════════════════════════ -->
 <div id="tab-fgts" class="tab-panel">
@@ -626,7 +593,6 @@ let _historico = [];
 function isGeralJob(j) { return j && j.script === "robo_geral.py"; }
 
 const TIPO_LABEL = {
-  federal:     "Federal (CND)",
   fgts:        "FGTS (CRF)",
   trabalhista: "Trabalhista (CNDT)",
   estadual_mt: "Estadual MT",
@@ -634,7 +600,7 @@ const TIPO_LABEL = {
 
 // Estado de log independente por tipo
 const _logState = {};
-["federal","fgts","trabalhista","estadual_mt"].forEach(t => {
+["fgts","trabalhista","estadual_mt"].forEach(t => {
   _logState[t] = { offset: 0, jobId: null, timer: null };
 });
 
@@ -751,7 +717,7 @@ async function atualizarStatus() {
     renderHistorico(_historico.filter(j => !isGeralJob(j)));
 
     // Abas por tipo — filtra por tipo.modo === tipo
-    ["federal","fgts","trabalhista","estadual_mt"].forEach(tipo => {
+    ["fgts","trabalhista","estadual_mt"].forEach(tipo => {
       const jobT = d.job_atual && isGeralJob(d.job_atual) && d.job_atual.modo === tipo
                    ? d.job_atual : null;
       renderTipoAtual(tipo, jobT);
@@ -774,7 +740,7 @@ function trocarTab(id, btn) {
   document.getElementById("tab-" + id).classList.add("ativo");
   btn.classList.add("ativo");
   if (id === "emp") carregarEmpresas();
-  if (["federal","fgts","trabalhista","estadual-mt"].includes(id)) atualizarStatus();
+  if (["fgts","trabalhista","estadual-mt"].includes(id)) atualizarStatus();
 }
 
 // ── verificação de cidade ─────────────────────────────────────────────────────
