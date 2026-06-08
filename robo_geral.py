@@ -269,23 +269,13 @@ def baixar_fgts(page, context, doc, caminho):
     except PlaywrightTimeout:
         return "nao_encontrado"
     campo.click()
-    campo.fill(cnpj_limpo)
+    campo.triple_click()
+    campo.press_sequentially(cnpj_limpo, delay=50)  # JSF precisa de eventos reais de teclado
+    campo.press("Tab")  # dispara onChange/onBlur do JSF
+    page.wait_for_timeout(800)
 
     page.get_by_role("button", name="Consultar").click()
-    page.wait_for_timeout(4000)
-
-    # Log de diagnóstico — aparece no log ao vivo da interface
-    try:
-        print(f"  [DEBUG] URL: {page.url}")
-        print(f"  [DEBUG] Titulo: {page.title()}")
-        texto_pagina = page.locator("body").inner_text()
-        linhas_visiveis = " | ".join(
-            l.strip() for l in texto_pagina.splitlines()
-            if l.strip() and len(l.strip()) > 3
-        )[:300]
-        print(f"  [DEBUG] Texto: {linhas_visiveis}")
-    except Exception as e:
-        print(f"  [DEBUG] Erro diagnostico: {e}")
+    page.wait_for_timeout(5000)
 
     # Verifica se irregular
     try:
