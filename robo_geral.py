@@ -60,6 +60,8 @@ URL_FGTS        = "https://consulta-crf.caixa.gov.br/consultacrf/pages/consultaE
 URL_TRABALHISTA = "https://cndt-certidao.tst.jus.br/inicio.faces"
 URL_SEFAZ_MT    = "https://www.sefaz.mt.gov.br/cnd/certidao/servlet/ServletRotdAberto?origem=60"
 
+ANTI_CAPTCHA_KEY = os.environ.get("ANTI_CAPTCHA_KEY", "")
+
 NOMES_TIPO = {
     "federal":     "Federal (CND)",
     "fgts":        "FGTS (CRF)",
@@ -358,66 +360,75 @@ def baixar_fgts(page, context, doc, caminho):
 
 # ── Fluxo: Trabalhista ────────────────────────────────────────────────────────
 
+def _resolver_captcha_tst(page):
+    """Resolve o captcha de imagem do TST via Anti-Captcha (mesmo padrao do robo.py)."""
+    if not ANTI_CAPTCHA_KEY:
+        print("  AVISO: ANTI_CAPTCHA_KEY nao configurada — defina a variavel de ambiente.")
+        return ""
+    try:
+        import tempfile
+        from anticaptchaofficial.imagecaptcha import imagecaptcha
+        img = page.locator('[id="idImgBase64"]')
+        img.wait_for(state="visible", timeout=10000)
+        img_bytes = img.screenshot(timeout=10000)
+        tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
+        tmp.write(img_bytes)
+        tmp.close()
+        solver = imagecaptcha()
+        solver.set_verbose(0)
+        solver.set_key(ANTI_CAPTCHA_KEY)
+        resultado = solver.solve_and_return_solution(tmp.name)
+        os.unlink(tmp.name)
+        if resultado and resultado != 0:
+            return str(resultado)
+    except Exception as e:
+        print(f"  AVISO: captcha nao resolvido ({e})")
+    return ""
+
+
 def baixar_trabalhista(page, context, doc, caminho):
     """CNDT — portal TST (cndt-certidao.tst.jus.br)."""
-    page.goto(URL_TRABALHISTA, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(1000)
+    doc_limpo = re.sub(r"\D", "", doc)
 
-    # Campo CPF/CNPJ
-    campo = page.locator(
-        'input[id*="cpfCnpj" i], input[id*="inscricao" i], '
-        'input[name*="cpfCnpj" i], input[id*="cnpj" i], '
-        'input[id*="cpf" i], input[type="text"]:visible'
-    ).first
-    try:
-        campo.wait_for(state="visible", timeout=15000)
-    except PlaywrightTimeout:
-        return "nao_encontrado"
-    campo.click()
-    campo.fill(re.sub(r"\D", "", doc))  # TST aceita apenas digitos
-    page.wait_for_timeout(500)
+    for _tentativa in range(3):
+        page.goto(URL_TRABALHISTA, wait_until="domcontentloaded", timeout=30000)
+        page.wait_for_timeout(1000)
 
-    page.get_by_role("button", name=re.compile(
-        r"pesquisar|consultar|buscar", re.I
-    )).first.click()
-    page.wait_for_timeout(3000)
+        page.get_by_role("button", name="Emitir Certidão").click()
 
-    # Verifica dividas
-    try:
-        if page.get_by_text(re.compile(
-            r"devedor|pendenc|inscrit", re.I
-        ), exact=False).first.is_visible(timeout=2000):
-            return "com_debitos"
-    except Exception:
-        pass
+        campo = page.get_by_role("textbox", name="Registro no Cadastro Nacional")
+        try:
+            campo.wait_for(state="visible", timeout=10000)
+        except PlaywrightTimeout:
+            return "nao_encontrado"
+        campo.click()
+        campo.press_sequentially(doc_limpo, delay=285)
 
-    # Emite certidao
-    try:
-        btn = page.get_by_role("button", name=re.compile(
-            r"emitir|gerar|imprimir|baixar|certid", re.I
-        )).first
-        btn.wait_for(state="visible", timeout=15000)
-        with page.expect_download(timeout=30000) as dl:
-            btn.click()
-        dl.value.save_as(caminho)
-        return "ok"
-    except Exception:
-        pass
+        captcha_text = _resolver_captcha_tst(page)
+        if not captcha_text:
+            return "nao_encontrado"
 
-    try:
-        link = page.get_by_role("link", name=re.compile(
-            r"emitir|imprimir|baixar|pdf|certid", re.I
-        )).first
-        link.wait_for(state="visible", timeout=10000)
-        with page.expect_download(timeout=30000) as dl:
-            link.click()
-        dl.value.save_as(caminho)
-        return "ok"
-    except Exception:
-        pass
+        page.get_by_role("textbox", name="* Digite os caracteres").fill(captcha_text)
 
-    if _capturar_popup_como_pdf(page, context, caminho):
-        return "ok"
+        try:
+            with page.expect_download(timeout=30000) as dl:
+                page.get_by_role("button", name="Emitir Certidão").click()
+            dl.value.save_as(caminho)
+            if os.path.exists(caminho) and os.path.getsize(caminho) > 3000:
+                return "ok"
+        except Exception:
+            pass
+
+        # Verifica debitos na pagina resultante
+        try:
+            if page.get_by_text(re.compile(
+                r"devedor|pendenc|inscrit|irregular", re.I
+            ), exact=False).first.is_visible(timeout=3000):
+                return "com_debitos"
+        except Exception:
+            pass
+
+        page.wait_for_timeout(1000)
 
     return "nao_encontrado"
 
