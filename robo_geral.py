@@ -272,21 +272,20 @@ def baixar_fgts(page, context, doc, caminho):
     campo.fill(cnpj_limpo)
 
     page.get_by_role("button", name="Consultar").click()
+    page.wait_for_timeout(4000)
 
-    # Aguarda resultado real aparecer (link ou mensagem de status)
+    # Log de diagnóstico — aparece no log ao vivo da interface
     try:
-        page.wait_for_selector(
-            'a:has-text("Certificado"), [class*="irregular" i], '
-            '[class*="regular" i], .mensagem, #mainForm\\:tabela',
-            timeout=15000
-        )
-    except PlaywrightTimeout:
-        # Salva screenshot de debug para diagnóstico
-        try:
-            page.screenshot(path=os.path.join(BASE_DIR, "debug_fgts.png"))
-        except Exception:
-            pass
-        return "nao_encontrado"
+        print(f"  [DEBUG] URL: {page.url}")
+        print(f"  [DEBUG] Titulo: {page.title()}")
+        texto_pagina = page.locator("body").inner_text()
+        linhas_visiveis = " | ".join(
+            l.strip() for l in texto_pagina.splitlines()
+            if l.strip() and len(l.strip()) > 3
+        )[:300]
+        print(f"  [DEBUG] Texto: {linhas_visiveis}")
+    except Exception as e:
+        print(f"  [DEBUG] Erro diagnostico: {e}")
 
     # Verifica se irregular
     try:
@@ -297,17 +296,13 @@ def baixar_fgts(page, context, doc, caminho):
     except Exception:
         pass
 
-    # Certificado de Regularidade — texto pode variar ligeiramente
+    # Certificado de Regularidade
     try:
         link = page.locator('a', has_text="Certificado").first
         link.wait_for(state="visible", timeout=8000)
         link.click()
         page.wait_for_timeout(1000)
     except PlaywrightTimeout:
-        try:
-            page.screenshot(path=os.path.join(BASE_DIR, "debug_fgts.png"))
-        except Exception:
-            pass
         return "nao_encontrado"
 
     # Registra listeners ANTES de clicar Visualizar
