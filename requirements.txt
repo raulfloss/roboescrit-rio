@@ -6,3 +6,5 @@ requests
 anticaptchaofficial
 pypdf
 Pillow
+playwright-stealth
+pyvirtualdisplay

@@ -23,6 +23,12 @@ try:
 except ImportError:
     _PYPDF_OK = False
 
+try:
+    from playwright_stealth import stealth_sync as _stealth_sync
+    _HAS_STEALTH = True
+except ImportError:
+    _HAS_STEALTH = False
+
 # ── Configuracao ──────────────────────────────────────────────────────────────
 
 if getattr(sys, "frozen", False):
@@ -255,8 +261,8 @@ def baixar_fgts(page, context, doc, caminho):
     """CRF (FGTS) — portal Caixa (consulta-crf.caixa.gov.br)."""
     cnpj_limpo = re.sub(r"\D", "", doc)
 
-    page.goto(URL_FGTS, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(1000)
+    page.goto(URL_FGTS, wait_until="load", timeout=30000)
+    page.wait_for_timeout(2000)
 
     # CPF (produtor rural) exige selecionar tipo "3" antes de preencher
     if len(cnpj_limpo) == 11:
@@ -267,9 +273,15 @@ def baixar_fgts(page, context, doc, caminho):
     try:
         campo.wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
+        try:
+            body = page.locator("body").inner_text()
+            print(f"  [DEBUG] campo nao visivel. Texto: {' | '.join(l.strip() for l in body.splitlines() if l.strip())[:600]}")
+        except Exception as e:
+            print(f"  [DEBUG] erro: {e}")
         return "nao_encontrado"
     campo.click()
     campo.fill(cnpj_limpo)
+    print(f"  [DEBUG] stealth={'ativo' if _HAS_STEALTH else 'inativo'} | campo preenchido com {cnpj_limpo}")
 
     page.get_by_role("button", name="Consultar").click()
 
@@ -278,6 +290,13 @@ def baixar_fgts(page, context, doc, caminho):
         link = page.get_by_role("link", name="Certificado de Regularidade")
         link.wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
+        # Mostra o que o portal retornou para diagnostico
+        try:
+            body = page.locator("body").inner_text()
+            linhas = " | ".join(l.strip() for l in body.splitlines() if l.strip() and len(l.strip()) > 3)
+            print(f"  [DEBUG] pos-Consultar ({len(body)} chars): {linhas[:2000]}")
+        except Exception as de:
+            print(f"  [DEBUG] erro lendo pagina: {de}")
         # Verifica se portal retornou mensagem de debito/irregularidade
         try:
             if page.get_by_text(re.compile(
@@ -288,62 +307,77 @@ def baixar_fgts(page, context, doc, caminho):
             pass
         return "nao_encontrado"
 
-    link.click()
-    page.wait_for_timeout(1000)
-
-    # Registra listeners ANTES de clicar Visualizar
+    # Captura popup que pode abrir ao clicar "Certificado de Regularidade"
     popups_cap = []
     downloads_cap = []
-    def _on_page(p): popups_cap.append(p)
-    def _on_dl(d): downloads_cap.append(d)
+    def _on_page(p):
+        print(f"  [DEBUG] nova aba: {p.url}")
+        popups_cap.append(p)
+    def _on_dl(d):
+        print(f"  [DEBUG] download: {d.url}")
+        downloads_cap.append(d)
     context.on("page", _on_page)
     context.on("download", _on_dl)
 
-    page.get_by_role("button", name="Visualizar").click()
-    page.wait_for_timeout(5000)
+    link.click()
+    page.wait_for_timeout(3000)
+
+    print(f"  [DEBUG] apos link — URL main: {page.url} | abas: {len(context.pages)} | popups: {len(popups_cap)}")
+
+    # Decide em qual pagina clicar Visualizar
+    pagina_cert = popups_cap[-1] if popups_cap else page
+    print(f"  [DEBUG] usando pagina: {pagina_cert.url}")
+
+    try:
+        btn_vis = pagina_cert.get_by_role("button", name="Visualizar")
+        btn_vis.wait_for(state="visible", timeout=8000)
+    except PlaywrightTimeout:
+        context.remove_listener("page", _on_page)
+        context.remove_listener("download", _on_dl)
+        return "nao_encontrado"
+
+    btn_vis.click()
+    page.wait_for_timeout(4000)
 
     context.remove_listener("page", _on_page)
     context.remove_listener("download", _on_dl)
 
-    # Download direto tem prioridade
-    if downloads_cap:
-        downloads_cap[0].save_as(caminho)
-        for p in popups_cap:
-            try: p.close()
-            except: pass
-        return "ok"
+    pagina_impr = popups_cap[-1] if popups_cap else pagina_cert
 
-    # Popup com PDF — tenta fetch JS do arquivo real primeiro
-    if popups_cap:
-        pop = popups_cap[-1]
-        try:
-            pop.wait_for_load_state("networkidle", timeout=15000)
-            try:
-                pdf_b64 = pop.evaluate("""async () => {
-                    const r = await fetch(window.location.href);
-                    const blob = await r.blob();
-                    return new Promise(res => {
-                        const reader = new FileReader();
-                        reader.onload = () => res(reader.result.split(',')[1]);
-                        reader.readAsDataURL(blob);
-                    });
-                }""")
-                pdf_bytes = base64.b64decode(pdf_b64)
-                if b"%PDF" in pdf_bytes[:10]:
-                    with open(caminho, "wb") as f:
-                        f.write(pdf_bytes)
-                    pop.close()
-                    return "ok"
-            except Exception:
-                pass
-            pop.emulate_media(media="print")
-            pop.pdf(path=caminho, format="A4", print_background=True)
-            pop.close()
-            if os.path.exists(caminho) and os.path.getsize(caminho) > 3000:
-                return "ok"
-        except Exception:
-            try: pop.close()
-            except: pass
+    # Impede que o botão Imprimir abra o diálogo nativo do Chrome
+    # mas mantém qualquer ação JSF que ele dispara para preparar o conteúdo
+    try:
+        pagina_impr.evaluate("window.print = function() {}")
+        pagina_impr.get_by_text("Imprimir").click()
+        page.wait_for_timeout(1500)
+    except Exception:
+        pass
+
+    # CDP captura a página com CSS de impressão aplicado (mesmo conteúdo do print dialog)
+    try:
+        pagina_impr.emulate_media(media="print")
+        cdp = context.new_cdp_session(pagina_impr)
+        result = cdp.send("Page.printToPDF", {
+            "printBackground": True,
+            "landscape": False,
+            "paperWidth": 8.27,
+            "paperHeight": 11.69,
+            "marginTop": 0.4,
+            "marginBottom": 0.4,
+            "marginLeft": 0.4,
+            "marginRight": 0.4,
+        })
+        pdf_data = base64.b64decode(result["data"])
+        with open(caminho, "wb") as f:
+            f.write(pdf_data)
+
+        print(f"  [DEBUG] pdf gerou {len(pdf_data)} bytes")
+        if len(pdf_data) > 3000:
+            if pagina_impr != page:
+                pagina_impr.close()
+            return "ok"
+    except Exception as e:
+        print(f"  [DEBUG] CDP erro: {e}")
 
     return "nao_encontrado"
 
@@ -549,6 +583,18 @@ nao_encontrados  = []
 com_debitos_list = []
 ja_existentes    = []
 
+# No Railway (WEB_MODE), usa display virtual para rodar headed e evitar captcha Cloudflare
+_vdisplay = None
+if WEB_MODE and HEADLESS:
+    try:
+        from pyvirtualdisplay import Display
+        _vdisplay = Display(visible=False, size=(1920, 1080), color_depth=24)
+        _vdisplay.start()
+        HEADLESS = False
+        print("  Display virtual (Xvfb) iniciado — modo headed ativo")
+    except Exception as e:
+        print(f"  AVISO: Xvfb indisponivel ({e}) — mantendo headless")
+
 with sync_playwright() as p:
     browser = p.chromium.launch(
         headless=HEADLESS,
@@ -567,6 +613,8 @@ with sync_playwright() as p:
         "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
     )
     page = context.new_page()
+    if _HAS_STEALTH:
+        _stealth_sync(page)
 
     for i, reg in enumerate(todos, start=1):
         doc   = reg["doc"]
@@ -645,3 +693,9 @@ nome_rel = f"relatorio_geral_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 with open(os.path.join(PASTA_BASE, nome_rel), "w", encoding="utf-8") as f:
     f.write(relatorio)
 print(f"\nRelatorio salvo em: {os.path.join(PASTA_BASE, nome_rel)}")
+
+if _vdisplay is not None:
+    try:
+        _vdisplay.stop()
+    except Exception:
+        pass
