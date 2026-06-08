@@ -11,6 +11,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 from datetime import datetime
 import pandas as pd
 import unicodedata
+import base64
 import shutil
 import sys
 import re
@@ -183,6 +184,8 @@ def _capturar_popup_como_pdf(page, context, caminho):
             pass
         return False
 
+
+
 # ── Fluxo: CND Federal ────────────────────────────────────────────────────────
 
 def baixar_federal(page, context, doc, caminho):
@@ -250,64 +253,99 @@ def baixar_federal(page, context, doc, caminho):
 
 def baixar_fgts(page, context, doc, caminho):
     """CRF (FGTS) — portal Caixa (consulta-crf.caixa.gov.br)."""
+    cnpj_limpo = re.sub(r"\D", "", doc)
+
     page.goto(URL_FGTS, wait_until="domcontentloaded", timeout=30000)
     page.wait_for_timeout(1000)
 
-    # Campo CNPJ — JSF usa IDs variados
-    campo = page.locator(
-        '#cnpj, #empregador, '
-        'input[id*="cnpj" i], input[name*="cnpj" i], '
-        'input[placeholder*="CNPJ"], input[type="text"]:visible'
-    ).first
+    # CPF (produtor rural) exige selecionar tipo "3" antes de preencher
+    if len(cnpj_limpo) == 11:
+        page.locator('[id="mainForm:tipoEstabelecimento"]').select_option("3")
+        page.wait_for_timeout(500)
+
+    campo = page.locator('[id="mainForm:txtInscricao1"]')
     try:
         campo.wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
         return "nao_encontrado"
     campo.click()
-    campo.fill(formatar_doc(doc))
-    page.wait_for_timeout(500)
+    campo.fill(cnpj_limpo)
 
-    page.get_by_role("button", name=re.compile(
-        r"consultar|pesquisar|buscar|ok", re.I
-    )).first.click()
-    page.wait_for_timeout(3000)
+    page.get_by_role("button", name="Consultar").click()
+    page.wait_for_timeout(2000)
 
-    # Verifica irregularidade
+    # Verifica se irregular
     try:
         if page.get_by_text(re.compile(
             r"irregular|pendenc|devedor", re.I
-        ), exact=False).first.is_visible(timeout=2000):
+        ), exact=False).first.is_visible(timeout=3000):
             return "com_debitos"
     except Exception:
         pass
 
-    # Emite CRF
+    # Certificado de Regularidade
     try:
-        btn = page.get_by_role("button", name=re.compile(
-            r"emitir|gerar|crf|imprimir|baixar", re.I
-        )).first
-        btn.wait_for(state="visible", timeout=15000)
-        with page.expect_download(timeout=30000) as dl:
-            btn.click()
-        dl.value.save_as(caminho)
-        return "ok"
-    except Exception:
-        pass
-
-    try:
-        link = page.get_by_role("link", name=re.compile(
-            r"emitir|imprimir|baixar|pdf|crf", re.I
-        )).first
+        link = page.get_by_role("link", name="Certificado de Regularidade")
         link.wait_for(state="visible", timeout=10000)
-        with page.expect_download(timeout=30000) as dl:
-            link.click()
-        dl.value.save_as(caminho)
-        return "ok"
-    except Exception:
-        pass
+        link.click()
+        page.wait_for_timeout(1000)
+    except PlaywrightTimeout:
+        return "nao_encontrado"
 
-    if _capturar_popup_como_pdf(page, context, caminho):
+    # Registra listeners ANTES de clicar Visualizar
+    popups_cap = []
+    downloads_cap = []
+    def _on_page(p): popups_cap.append(p)
+    def _on_dl(d): downloads_cap.append(d)
+    context.on("page", _on_page)
+    context.on("download", _on_dl)
+
+    page.get_by_role("button", name="Visualizar").click()
+    page.wait_for_timeout(4000)
+
+    context.remove_listener("page", _on_page)
+    context.remove_listener("download", _on_dl)
+
+    # Download direto tem prioridade
+    if downloads_cap:
+        downloads_cap[0].save_as(caminho)
+        for p in popups_cap:
+            try: p.close()
+            except: pass
         return "ok"
+
+    # Popup com PDF — tenta fetch JS do arquivo real primeiro
+    if popups_cap:
+        pop = popups_cap[-1]
+        try:
+            pop.wait_for_load_state("networkidle", timeout=15000)
+            try:
+                pdf_b64 = pop.evaluate("""async () => {
+                    const r = await fetch(window.location.href);
+                    const blob = await r.blob();
+                    return new Promise(res => {
+                        const reader = new FileReader();
+                        reader.onload = () => res(reader.result.split(',')[1]);
+                        reader.readAsDataURL(blob);
+                    });
+                }""")
+                pdf_bytes = base64.b64decode(pdf_b64)
+                if b"%PDF" in pdf_bytes[:10]:
+                    with open(caminho, "wb") as f:
+                        f.write(pdf_bytes)
+                    pop.close()
+                    return "ok"
+            except Exception:
+                pass
+            # Fallback: page.pdf() para portais que retornam HTML
+            pop.emulate_media(media="print")
+            pop.pdf(path=caminho, format="A4", print_background=True)
+            pop.close()
+            if os.path.exists(caminho) and os.path.getsize(caminho) > 3000:
+                return "ok"
+        except Exception:
+            try: pop.close()
+            except: pass
 
     return "nao_encontrado"
 
