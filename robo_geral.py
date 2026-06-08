@@ -272,24 +272,42 @@ def baixar_fgts(page, context, doc, caminho):
     campo.fill(cnpj_limpo)
 
     page.get_by_role("button", name="Consultar").click()
-    page.wait_for_timeout(2000)
+
+    # Aguarda resultado real aparecer (link ou mensagem de status)
+    try:
+        page.wait_for_selector(
+            'a:has-text("Certificado"), [class*="irregular" i], '
+            '[class*="regular" i], .mensagem, #mainForm\\:tabela',
+            timeout=15000
+        )
+    except PlaywrightTimeout:
+        # Salva screenshot de debug para diagnóstico
+        try:
+            page.screenshot(path=os.path.join(BASE_DIR, "debug_fgts.png"))
+        except Exception:
+            pass
+        return "nao_encontrado"
 
     # Verifica se irregular
     try:
         if page.get_by_text(re.compile(
             r"irregular|pendenc|devedor", re.I
-        ), exact=False).first.is_visible(timeout=3000):
+        ), exact=False).first.is_visible(timeout=2000):
             return "com_debitos"
     except Exception:
         pass
 
-    # Certificado de Regularidade
+    # Certificado de Regularidade — texto pode variar ligeiramente
     try:
-        link = page.get_by_role("link", name="Certificado de Regularidade")
-        link.wait_for(state="visible", timeout=10000)
+        link = page.locator('a', has_text="Certificado").first
+        link.wait_for(state="visible", timeout=8000)
         link.click()
         page.wait_for_timeout(1000)
     except PlaywrightTimeout:
+        try:
+            page.screenshot(path=os.path.join(BASE_DIR, "debug_fgts.png"))
+        except Exception:
+            pass
         return "nao_encontrado"
 
     # Registra listeners ANTES de clicar Visualizar
