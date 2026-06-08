@@ -807,12 +807,18 @@ def baixar_sefaz_mt(page, context, doc, caminho):
     _on_dl = lambda d: _dl_sefaz.append(d)
     context.on("download", _on_dl)
 
-    # Submit
+    # Submit via JS form.submit() — contorna verificação isTrusted do site
+    submetido = False
     try:
-        page.get_by_role("button", name=re.compile(
-            r"emitir|gerar|consultar|pesquisar|ok|enviar", re.I
-        )).first.click()
+        submetido = page.evaluate("""() => {
+            const forms = document.querySelectorAll('form');
+            if (!forms.length) return false;
+            forms[forms.length - 1].submit();
+            return true;
+        }""")
     except Exception:
+        pass
+    if not submetido:
         try:
             page.locator('input[type="submit"], button[type="submit"]').first.click()
         except Exception:
