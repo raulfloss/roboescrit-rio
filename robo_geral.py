@@ -1030,9 +1030,9 @@ def _launch_chrome_cdp(porta=9222, exe=None):
             "--hide-crash-restore-bubble",
             "--no-restore-state",
         ]
-        # Docker/Railway roda como root — Chromium exige --no-sandbox nesse caso
+        # Docker/Railway: root + /dev/shm pequeno exigem estas flags
         if os.name != "nt":
-            cmd.append("--no-sandbox")
+            cmd += ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"  Chrome CDP lançado (porta {porta}, perfil isolado)")
         return proc, tmp_dir
