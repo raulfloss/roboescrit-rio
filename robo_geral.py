@@ -273,31 +273,17 @@ def baixar_fgts(page, context, doc, caminho):
     try:
         campo.wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
-        try:
-            body = page.locator("body").inner_text()
-            print(f"  [DEBUG] campo nao visivel. Texto: {' | '.join(l.strip() for l in body.splitlines() if l.strip())[:600]}")
-        except Exception as e:
-            print(f"  [DEBUG] erro: {e}")
         return "nao_encontrado"
     campo.click()
     campo.fill(cnpj_limpo)
-    print(f"  [DEBUG] stealth={'ativo' if _HAS_STEALTH else 'inativo'} | campo preenchido com {cnpj_limpo}")
 
     page.get_by_role("button", name="Consultar").click()
 
-    # Aguarda o link de resultado aparecer (texto exato do codegen)
+    # Aguarda o link de resultado aparecer
     try:
         link = page.get_by_role("link", name="Certificado de Regularidade")
         link.wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
-        # Mostra o que o portal retornou para diagnostico
-        try:
-            body = page.locator("body").inner_text()
-            linhas = " | ".join(l.strip() for l in body.splitlines() if l.strip() and len(l.strip()) > 3)
-            print(f"  [DEBUG] pos-Consultar ({len(body)} chars): {linhas[:2000]}")
-        except Exception as de:
-            print(f"  [DEBUG] erro lendo pagina: {de}")
-        # Verifica se portal retornou mensagem de debito/irregularidade
         try:
             if page.get_by_text(re.compile(
                 r"irregular|pendenc|devedor|n.o.*regular", re.I
@@ -310,23 +296,15 @@ def baixar_fgts(page, context, doc, caminho):
     # Captura popup que pode abrir ao clicar "Certificado de Regularidade"
     popups_cap = []
     downloads_cap = []
-    def _on_page(p):
-        print(f"  [DEBUG] nova aba: {p.url}")
-        popups_cap.append(p)
-    def _on_dl(d):
-        print(f"  [DEBUG] download: {d.url}")
-        downloads_cap.append(d)
+    def _on_page(p): popups_cap.append(p)
+    def _on_dl(d): downloads_cap.append(d)
     context.on("page", _on_page)
     context.on("download", _on_dl)
 
     link.click()
     page.wait_for_timeout(3000)
 
-    print(f"  [DEBUG] apos link — URL main: {page.url} | abas: {len(context.pages)} | popups: {len(popups_cap)}")
-
-    # Decide em qual pagina clicar Visualizar
     pagina_cert = popups_cap[-1] if popups_cap else page
-    print(f"  [DEBUG] usando pagina: {pagina_cert.url}")
 
     try:
         btn_vis = pagina_cert.get_by_role("button", name="Visualizar")
@@ -344,8 +322,7 @@ def baixar_fgts(page, context, doc, caminho):
 
     pagina_impr = popups_cap[-1] if popups_cap else pagina_cert
 
-    # Impede que o botão Imprimir abra o diálogo nativo do Chrome
-    # mas mantém qualquer ação JSF que ele dispara para preparar o conteúdo
+    # Impede dialogo nativo e clica Imprimir para preparar conteudo JSF
     try:
         pagina_impr.evaluate("window.print = function() {}")
         pagina_impr.get_by_text("Imprimir").click()
@@ -353,7 +330,7 @@ def baixar_fgts(page, context, doc, caminho):
     except Exception:
         pass
 
-    # CDP captura a página com CSS de impressão aplicado (mesmo conteúdo do print dialog)
+    # Gera PDF via CDP com CSS de impressão
     try:
         pagina_impr.emulate_media(media="print")
         cdp = context.new_cdp_session(pagina_impr)
@@ -370,14 +347,12 @@ def baixar_fgts(page, context, doc, caminho):
         pdf_data = base64.b64decode(result["data"])
         with open(caminho, "wb") as f:
             f.write(pdf_data)
-
-        print(f"  [DEBUG] pdf gerou {len(pdf_data)} bytes")
         if len(pdf_data) > 3000:
             if pagina_impr != page:
                 pagina_impr.close()
             return "ok"
-    except Exception as e:
-        print(f"  [DEBUG] CDP erro: {e}")
+    except Exception:
+        pass
 
     return "nao_encontrado"
 
