@@ -913,19 +913,41 @@ if WEB_MODE and HEADLESS:
         print(f"  AVISO: Xvfb indisponivel ({e}) — mantendo headless")
 
 def _find_chrome():
+    import glob as _glob
     caminhos = [
+        # Windows
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
         os.path.join(os.path.expanduser("~"), r"AppData\Local\Google\Chrome\Application\chrome.exe"),
+        # Linux
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/snap/bin/chromium",
+        "/snap/bin/google-chrome",
+        # macOS
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
     ]
     for c in caminhos:
         if os.path.exists(c):
             return c
+    # Fallback: Chromium embutido do Playwright (Linux / Windows)
+    for pattern in [
+        os.path.expanduser("~/.cache/ms-playwright/chromium-*/chrome-linux/chrome"),
+        "/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome",
+        "/ms-playwright/chromium-*/chrome-linux/chrome",
+        os.path.join(os.path.expanduser("~"),
+                     r"AppData\Local\ms-playwright\chromium-*\chrome-win\chrome.exe"),
+    ]:
+        matches = _glob.glob(pattern)
+        if matches:
+            return sorted(matches)[-1]
     return None
 
 _chrome_exe = _find_chrome()
 if _chrome_exe:
-    print(f"  Usando Chrome real: {_chrome_exe}")
+    print(f"  Usando Chrome: {_chrome_exe}")
 else:
     print("  Chrome nao encontrado, usando Chromium do Playwright")
 
@@ -1007,6 +1029,9 @@ def _launch_chrome_cdp(porta=9222):
             "--hide-crash-restore-bubble",
             "--no-restore-state",
         ]
+        # Docker/Railway roda como root — Chromium exige --no-sandbox nesse caso
+        if os.name != "nt":
+            cmd.append("--no-sandbox")
         proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         print(f"  Chrome CDP lançado (porta {porta}, perfil isolado)")
         return proc, tmp_dir
@@ -1023,7 +1048,7 @@ with sync_playwright() as p:
     context      = None
 
     # Tenta abordagem CDP: Chrome lançado sem flags de automação Playwright
-    if _chrome_exe and not WEB_MODE:
+    if _chrome_exe:
         _chrome_proc, _cdp_tmp_dir = _launch_chrome_cdp(9222)
         if _chrome_proc:
             time.sleep(4)  # Aguarda Chrome inicializar
