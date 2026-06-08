@@ -10,11 +10,14 @@ Uso:
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
-import pandas as pd
+import openpyxl
 import unicodedata
+import subprocess
 import tempfile
 import base64
 import shutil
+import random
+import time
 import sys
 import re
 import os
@@ -63,6 +66,7 @@ URL_TRABALHISTA = "https://cndt-certidao.tst.jus.br/inicio.faces"
 URL_SEFAZ_MT    = "https://www.sefaz.mt.gov.br/cnd/certidao/servlet/ServletRotdAberto?origem=60"
 
 ANTI_CAPTCHA_KEY = os.environ.get("ANTI_CAPTCHA_KEY", "")
+RF_TS_COOKIE     = os.environ.get("RF_TS_COOKIE", "")  # ex: TS3750c27d027=abc123
 
 NOMES_TIPO = {
     "federal":     "Federal (CND)",
@@ -101,28 +105,45 @@ def detectar_tipo_certidao(caminho):
 
 # ── Leitura do Excel ──────────────────────────────────────────────────────────
 
+def _ler_sheet(sheet):
+    """Converte uma aba do openpyxl em lista de dicts (primeira linha = cabecalho)."""
+    rows = list(sheet.iter_rows(values_only=True))
+    if not rows:
+        return [], []
+    headers = [str(c).strip() if c is not None else "" for c in rows[0]]
+    data = []
+    for row in rows[1:]:
+        d = {headers[i]: (str(row[i]).strip() if row[i] is not None else "") for i in range(len(headers))}
+        data.append(d)
+    return headers, data
+
 def _ler_empresas():
     """Le CNPJs da aba principal."""
     try:
-        df = pd.read_excel(ARQUIVO_EXCEL, dtype=str).fillna("")
-        rename = {}
-        for col in df.columns:
-            for esp in [COLUNA_CNPJ, COLUNA_NOME, COLUNA_CIDADE]:
-                if _norm(col) == _norm(esp) and col != esp:
-                    rename[col] = esp
-        if rename:
-            df = df.rename(columns=rename)
-        if COLUNA_CNPJ not in df.columns:
+        wb = openpyxl.load_workbook(ARQUIVO_EXCEL, read_only=True, data_only=True)
+        sheet = wb.active
+        headers, data = _ler_sheet(sheet)
+        wb.close()
+
+        col_cnpj = None
+        col_nome = None
+        for h in headers:
+            if _norm(h) == _norm(COLUNA_CNPJ):
+                col_cnpj = h
+            if _norm(h) == _norm(COLUNA_NOME):
+                col_nome = h
+
+        if col_cnpj is None:
             print(f"  AVISO: coluna '{COLUNA_CNPJ}' nao encontrada na aba principal.")
             return []
-        df[COLUNA_CNPJ] = df[COLUNA_CNPJ].str.replace(r"[.\-/\s]", "", regex=True).str.strip()
+
         out = []
-        for _, row in df.iterrows():
-            cnpj = str(row.get(COLUNA_CNPJ, "")).strip()
+        for row in data:
+            cnpj = re.sub(r"\D", "", row.get(col_cnpj, "")).strip()
             if len(cnpj) == 14 and cnpj.isdigit():
                 out.append({
                     "doc":  cnpj,
-                    "nome": str(row.get(COLUNA_NOME, "")).strip(),
+                    "nome": row.get(col_nome, "").strip() if col_nome else "",
                 })
         return out
     except Exception as e:
@@ -132,41 +153,43 @@ def _ler_empresas():
 def _ler_produtores():
     """Le CPFs da aba 'produtores ativos'."""
     try:
-        df = pd.read_excel(ARQUIVO_EXCEL, sheet_name=ABA_PRODUTORES, dtype=str).fillna("")
+        wb = openpyxl.load_workbook(ARQUIVO_EXCEL, read_only=True, data_only=True)
+        if ABA_PRODUTORES not in wb.sheetnames:
+            wb.close()
+            return []
+        sheet = wb[ABA_PRODUTORES]
+        headers, data = _ler_sheet(sheet)
+        wb.close()
 
-        # Encontra coluna de CPF/documento
         col_doc = None
-        for col in df.columns:
-            n = _norm(col)
+        for h in headers:
+            n = _norm(h)
             if "cpf" in n or _norm(COLUNA_CNPJ) == n:
-                col_doc = col
+                col_doc = h
                 break
         if col_doc is None:
-            # Busca primeira coluna com valores de 11 digitos
-            for col in df.columns:
-                vals = df[col].str.replace(r"\D", "", regex=True).str.strip()
-                if vals.str.len().eq(11).any():
-                    col_doc = col
+            for h in headers:
+                if any(len(re.sub(r"\D", "", row.get(h, ""))) == 11 for row in data[:5]):
+                    col_doc = h
                     break
         if col_doc is None:
             print(f"  AVISO: coluna de CPF nao encontrada na aba '{ABA_PRODUTORES}'.")
             return []
 
         col_nome = None
-        for col in df.columns:
-            n = _norm(col)
+        for h in headers:
+            n = _norm(h)
             if "nome" in n or "razao" in n or _norm(COLUNA_NOME) == n:
-                col_nome = col
+                col_nome = h
                 break
 
-        df[col_doc] = df[col_doc].str.replace(r"\D", "", regex=True).str.strip()
         out = []
-        for _, row in df.iterrows():
-            cpf = str(row[col_doc]).strip()
+        for row in data:
+            cpf = re.sub(r"\D", "", row.get(col_doc, "")).strip()
             if len(cpf) == 11 and cpf.isdigit():
                 out.append({
                     "doc":  cpf,
-                    "nome": str(row.get(col_nome, "")).strip() if col_nome else "",
+                    "nome": row.get(col_nome, "").strip() if col_nome else "",
                 })
         return out
     except Exception as e:
@@ -198,66 +221,334 @@ def _capturar_popup_como_pdf(page, context, caminho):
 
 # ── Fluxo: CND Federal ────────────────────────────────────────────────────────
 
-def baixar_federal(page, context, doc, caminho):
-    """CND Federal — Receita Federal (servicos.receitafederal.gov.br)."""
-    page.goto(URL_FEDERAL, wait_until="domcontentloaded", timeout=30000)
-    page.wait_for_timeout(2000)
+def _baixar_federal_http(doc_limpo, caminho, px_token=""):
+    """Tenta baixar via requests usando o token PerimeterX capturado do browser."""
+    import requests
+    eh_cpf = len(doc_limpo) == 11
+    tipo = "CPF" if eh_cpf else "PJ"
+    tipo_enum = "CPF" if eh_cpf else "CNPJ"
+    base = "https://servicos.receitafederal.gov.br/servico/certidoes"
 
-    # SPA pode ter submenu; tenta navegar para CND se houver link
+    hdrs = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "pt-BR,pt;q=0.9",
+        "Origin": "https://servicos.receitafederal.gov.br",
+        "Referer": base + "/",
+        "Content-Type": "application/json",
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+    }
+    if px_token:
+        hdrs["x-captcha-token"] = px_token
+
+    sess = requests.Session()
+    sess.headers.update(hdrs)
+
     try:
-        link = page.get_by_role("link", name=re.compile(
-            r"certid.o de d.bitos|CND|d.bitos relativo", re.I
-        )).first
-        if link.is_visible(timeout=3000):
-            link.click()
-            page.wait_for_timeout(1500)
+        sess.get(base + "/", timeout=15)
     except Exception:
         pass
 
-    # Campo CNPJ/CPF
-    campo = page.locator(
-        'input[placeholder*="CNPJ"], input[placeholder*="CPF"], '
-        'input[id*="cnpj" i], input[id*="cpf" i], '
-        'input[name*="numCpfCnpj" i], input[name*="cnpj" i], '
-        'input[type="text"]:visible'
-    ).first
+    try:
+        r = sess.post(f"{base}/api/consulta/validar-contribuinte",
+                      json={"ni": doc_limpo, "tipoContribuinte": tipo}, timeout=30)
+        print(f"  [HTTP] validar: {r.status_code} {r.text[:300]}")
+        if r.status_code == 200:
+            dv = r.json()
+            if dv.get("statusValidacao") in ("Invalido", "invalido"):
+                return "com_debitos"
+        elif r.status_code != 400:
+            return None
+    except Exception as e:
+        print(f"  [HTTP] validar erro: {e}")
+        return None
+
+    try:
+        r2 = sess.post(f"{base}/api/Emissao/verificar",
+                       json={"ni": doc_limpo, "tipoContribuinte": tipo,
+                             "tipoContribuinteEnum": tipo_enum}, timeout=30)
+        print(f"  [HTTP] verificar: {r2.status_code} {r2.text[:400]}")
+        if r2.status_code != 200:
+            return None
+        dados = r2.json()
+    except Exception as e:
+        print(f"  [HTTP] verificar erro: {e}")
+        return None
+
+    # Tenta download pelo ID retornado
+    for chave in ("id", "idCertidao", "numeroCertidao", "hash"):
+        cert_id = dados.get(chave)
+        if cert_id:
+            for ep in [f"{base}/api/Emissao/download/{cert_id}",
+                       f"{base}/api/certidao/{cert_id}/download"]:
+                try:
+                    rd = sess.get(ep, timeout=30)
+                    if rd.status_code == 200 and len(rd.content) > 3000:
+                        with open(caminho, "wb") as f:
+                            f.write(rd.content)
+                        return "ok"
+                except Exception:
+                    pass
+
+    # Tenta emitir nova certidao
+    try:
+        r3 = sess.post(f"{base}/api/Emissao/emitir",
+                       json={"ni": doc_limpo, "tipoContribuinte": tipo,
+                             "tipoContribuinteEnum": tipo_enum}, timeout=60)
+        print(f"  [HTTP] emitir: {r3.status_code} len={len(r3.content)} {r3.text[:300]}")
+        if r3.status_code == 200 and len(r3.content) > 3000:
+            with open(caminho, "wb") as f:
+                f.write(r3.content)
+            return "ok"
+    except Exception as e:
+        print(f"  [HTTP] emitir erro: {e}")
+
+    return None
+
+def _set_angular_input(page, selector, value):
+    """Define valor em input Angular disparando todos os eventos necessarios."""
+    page.evaluate("""([sel, val]) => {
+        const el = document.querySelector(sel);
+        if (!el) return;
+        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        setter.call(el, val);
+        el.dispatchEvent(new Event('input',  { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('blur',   { bubbles: true }));
+    }""", [selector, value])
+
+def baixar_federal(page, context, doc, caminho):
+    """CND Federal — Receita Federal (servicos.receitafederal.gov.br)."""
+    doc_limpo = re.sub(r"\D", "", doc)
+
+    # HTTP sem token sempre falha (022) E envenena o IP no PerimeterX.
+    # Fazemos HTTP apenas depois de capturar o token do browser.
+
+    eh_cpf = len(doc_limpo) == 11
+
+    url_hash = "/home/cpf" if eh_cpf else "/home/cnpj"
+    url = f"https://servicos.receitafederal.gov.br/servico/certidoes/#{url_hash}"
+
+    # Se já estamos no domínio RF, navega só o hash — PerimeterX não re-inicializa
+    ja_no_rf = "receitafederal.gov.br/servico/certidoes" in page.url
+    if ja_no_rf:
+        page.evaluate(f"location.hash = '{url_hash}'")
+        page.wait_for_timeout(800)
+    else:
+        page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        # Primeira carga: aguarda PerimeterX inicializar
+        page.wait_for_timeout(random.randint(4000, 5000))
+
+    # Limpa estado Angular residual
+    page.evaluate("() => { try { sessionStorage.clear(); } catch(e) {} }")
+    page.wait_for_timeout(300)
+
+    # Campo CPF ou CNPJ
+    label = "CPF" if eh_cpf else "CNPJ"
+    campo = page.get_by_label(label, exact=False)
     try:
         campo.wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
         return "nao_encontrado"
+
+    # Move mouse antes de clicar (comportamento humano — apenas na primeira vez)
+    if not ja_no_rf:
+        try:
+            box_c = campo.bounding_box()
+            if box_c:
+                page.mouse.move(random.randint(100, 400), random.randint(100, 300))
+                page.wait_for_timeout(random.randint(200, 400))
+                page.mouse.move(
+                    box_c["x"] + box_c["width"] * random.uniform(0.3, 0.7),
+                    box_c["y"] + box_c["height"] * random.uniform(0.3, 0.7),
+                    steps=random.randint(5, 8),
+                )
+                page.wait_for_timeout(random.randint(100, 250))
+        except Exception:
+            pass
+
+    # Digita o documento com delay reduzido (ainda parece humano)
     campo.click()
-    campo.fill(formatar_doc(doc))
-    page.wait_for_timeout(500)
+    campo.fill("")  # Limpa campo antes de digitar
+    for ch in doc_limpo:
+        campo.press(ch)
+        page.wait_for_timeout(random.randint(40, 90))
+    page.wait_for_timeout(random.randint(200, 400))
 
-    # Botao de consulta
-    try:
-        page.get_by_role("button", name=re.compile(
-            r"emitir|gerar|consultar|pesquisar|confirmar", re.I
-        )).first.click()
-    except Exception:
-        page.keyboard.press("Enter")
-    page.wait_for_timeout(3000)
+    # Garante que o Angular registrou o valor formatado
+    sel = "input[id*='cnpj' i], input[name*='cnpj' i], input[formcontrolname*='cnpj' i]"
+    if eh_cpf:
+        sel = "input[id*='cpf' i], input[name*='cpf' i], input[formcontrolname*='cpf' i]"
+    doc_fmt = formatar_doc(doc)
+    _set_angular_input(page, sel, doc_fmt)
+    page.wait_for_timeout(random.randint(300, 500))
 
-    # Captura download direto
-    try:
-        with page.expect_download(timeout=15000) as dl:
+    # Captura o token PerimeterX gerado pelo browser
+    _px_token = [""]
+    _api_resps = []
+    def _on_req_px(req):
+        if "certidoes/api" in req.url:
+            tok = req.headers.get("x-captcha-token", "")
+            if tok and not _px_token[0]:
+                _px_token[0] = tok
+    def _on_resp_api(resp):
+        if "certidoes/api" in resp.url:
             try:
-                page.get_by_role("button", name=re.compile(
-                    r"baixar|download|salvar|pdf|imprimir", re.I
-                )).first.click()
+                body_resp = resp.text()[:400]
             except Exception:
-                page.get_by_role("link", name=re.compile(
-                    r"baixar|download|pdf|certid", re.I
-                )).first.click()
-        dl.value.save_as(caminho)
-        return "ok"
+                body_resp = ""
+            _api_resps.append(f"{resp.status} {resp.url.split('api/')[-1]} | {body_resp}")
+    page.on("request", _on_req_px)
+    page.on("response", _on_resp_api)
+
+    # Aguarda botao ficar habilitado
+    btn_emitir = page.get_by_role("button", name="Emitir Certidão")
+    try:
+        btn_emitir.wait_for(state="visible", timeout=5000)
+    except PlaywrightTimeout:
+        return "nao_encontrado"
+
+    # Move mouse brevemente antes de clicar
+    try:
+        box = btn_emitir.bounding_box()
+        if box:
+            page.mouse.move(
+                box["x"] + box["width"] * random.uniform(0.3, 0.7),
+                box["y"] + box["height"] * random.uniform(0.3, 0.7),
+                steps=random.randint(4, 7),
+            )
+            page.wait_for_timeout(random.randint(80, 200))
     except Exception:
         pass
 
-    if _capturar_popup_como_pdf(page, context, caminho):
-        return "ok"
+    # Captura downloads via event listener
+    _downloads = []
+    _on_dl = lambda d: _downloads.append(d)
+    context.on("download", _on_dl)
 
-    return "nao_encontrado"
+    _RE_ERRO_TX = re.compile(
+        r"nao foi poss[íi]vel|insuficientes para emitir|dados insuf|nao.*localizado",
+        re.I,
+    )
+
+    def _tem_erro_visivel():
+        try:
+            return page.get_by_text(_RE_ERRO_TX, exact=False).first.is_visible()
+        except Exception:
+            return False
+
+    def _tem_erro_api():
+        for r in _api_resps[-3:]:
+            if r.startswith("400") or " 023" in r or " 022" in r:
+                return True
+        return False
+
+    def _tem_popup():
+        return any(pg != page for pg in context.pages)
+
+    def _finalizar(status):
+        try:
+            context.remove_listener("download", _on_dl)
+        except Exception:
+            pass
+        for r in _api_resps:
+            print(f"  [API] {r}")
+        return status
+
+    def _salvar_dl():
+        try:
+            _downloads[0].save_as(caminho)
+            return os.path.exists(caminho) and os.path.getsize(caminho) > 3000
+        except Exception:
+            return False
+
+    def _aguardar_resultado(max_ticks, label=""):
+        """Aguarda download/popup/erro por até max_ticks × 500ms. Retorna 'ok','erro','timeout'."""
+        for tick in range(max_ticks):
+            page.wait_for_timeout(500)
+            if _downloads:
+                print(f"  Download detectado (tick {tick+1})")
+                return "ok" if _salvar_dl() else "timeout"
+            if _tem_popup():
+                print(f"  Popup/nova-aba detectado (tick {tick+1})")
+                return "ok" if _capturar_popup_como_pdf(page, context, caminho) else "timeout"
+            if _tem_erro_api() or _tem_erro_visivel():
+                print(f"  Erro detectado{' ' + label if label else ''} (tick {tick+1})")
+                return "erro"
+            # Pagina de resultado sem download = informacoes insuficientes
+            if "/resultado" in page.url and not _downloads:
+                print(f"  Pagina /resultado sem download (tick {tick+1}) — insuficiente")
+                return "erro"
+        return "timeout"
+
+    # ── Passo 1: clica "Emitir Certidão" ─────────────────────────────────────
+    print("  Clicando Emitir Certidao...")
+    btn_emitir.click()
+
+    # Aguarda até 6s: download direto, erro ou modal
+    _modal_nome = None
+    for _tick in range(12):  # 12 × 500ms = 6s
+        page.wait_for_timeout(500)
+        if _downloads:
+            print(f"  Download direto (tick {_tick+1})")
+            return _finalizar("ok") if _salvar_dl() else _finalizar("nao_encontrado")
+        if _tem_popup():
+            print(f"  Popup detectado apos Emitir (tick {_tick+1})")
+            r = _capturar_popup_como_pdf(page, context, caminho)
+            return _finalizar("ok") if r else _finalizar("nao_encontrado")
+        if _tem_erro_api() or _tem_erro_visivel():
+            print(f"  Erro apos Emitir (tick {_tick+1})")
+            return _finalizar("nao_encontrado")
+        # Modal de certidão válida?
+        for _nome in ["Emitir Nova Certidão", "Consultar Certidão"]:
+            try:
+                if page.get_by_role("button", name=_nome).is_visible():
+                    _modal_nome = _nome
+                    break
+            except Exception:
+                pass
+        if _modal_nome:
+            print(f"  Modal detectado (tick {_tick+1}): '{_modal_nome}'")
+            break
+
+    # ── Passo 2: clica botão do modal se apareceu ─────────────────────────────
+    if _modal_nome:
+        # Aguarda o backdrop/loading sumir antes de tentar clicar
+        try:
+            page.locator("br-loading").wait_for(state="hidden", timeout=10000)
+            print("  Loading desapareceu, clicando...")
+        except Exception:
+            pass  # Se nao achou br-loading, tenta assim mesmo
+
+        # Tenta o botao azul primeiro; cai no que foi detectado como fallback
+        _clicado = False
+        for _nome_click in ["Emitir Nova Certidão", _modal_nome]:
+            try:
+                btn = page.get_by_role("button", name=_nome_click)
+                btn.wait_for(state="visible", timeout=3000)
+                btn.click()
+                print(f"  Clicou '{_nome_click}', aguardando resultado...")
+                _clicado = True
+                break
+            except Exception:
+                continue
+
+        if not _clicado:
+            print("  Nao conseguiu clicar botao do modal")
+            return _finalizar("nao_encontrado")
+
+        res = _aguardar_resultado(max_ticks=40, label="apos modal")
+        return _finalizar("ok") if res == "ok" else _finalizar("nao_encontrado")
+
+    # Sem modal e sem resultado em 6s
+    if _tem_popup():
+        r = _capturar_popup_como_pdf(page, context, caminho)
+        return _finalizar("ok") if r else _finalizar("nao_encontrado")
+
+    print("  Sem modal, sem download e sem erro em 6s — pulando")
+    return _finalizar("nao_encontrado")
 
 # ── Fluxo: FGTS ───────────────────────────────────────────────────────────────
 
@@ -575,6 +866,16 @@ for tipo in tipos:
     for reg in produtores:
         todos.append({**reg, "certidao": tipo})
 
+# Remove duplicatas (mesmo doc + mesmo tipo)
+vistos = set()
+todos_dedup = []
+for item in todos:
+    key = (item["doc"], item["certidao"])
+    if key not in vistos:
+        vistos.add(key)
+        todos_dedup.append(item)
+todos = todos_dedup
+
 total = len(todos)
 print(f"Modo: {arg_tipos.upper()} | {total} CNPJs selecionados.\n")
 
@@ -611,26 +912,176 @@ if WEB_MODE and HEADLESS:
     except Exception as e:
         print(f"  AVISO: Xvfb indisponivel ({e}) — mantendo headless")
 
+def _find_chrome():
+    caminhos = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        os.path.join(os.path.expanduser("~"), r"AppData\Local\Google\Chrome\Application\chrome.exe"),
+    ]
+    for c in caminhos:
+        if os.path.exists(c):
+            return c
+    return None
+
+_chrome_exe = _find_chrome()
+if _chrome_exe:
+    print(f"  Usando Chrome real: {_chrome_exe}")
+else:
+    print("  Chrome nao encontrado, usando Chromium do Playwright")
+
+_CHROME_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-infobars",
+    "--disable-extensions",
+    "--disable-sync",
+    "--hide-crash-restore-bubble",
+    "--no-restore-state",
+]
+_CONTEXT_KWARGS = dict(
+    accept_downloads=True,
+    locale="pt-BR",
+    timezone_id="America/Sao_Paulo",
+    viewport={"width": 1366, "height": 768},
+)
+
+def _criar_perfil_chrome_minimo():
+    """Copia apenas cookies + Local State do Chrome real para um dir temporario.
+    Isso permite usar cookies autenticos sem session restore (sem hang)."""
+    if os.name != "nt" or not _chrome_exe:
+        return None
+    src_ud = os.path.join(os.path.expanduser("~"),
+                          r"AppData\Local\Google\Chrome\User Data")
+    if not os.path.isdir(src_ud):
+        return None
+    try:
+        tmp = tempfile.mkdtemp(prefix="robo_chrome_")
+        # Local State contem a chave AES para decriptar cookies
+        ls = os.path.join(src_ud, "Local State")
+        if os.path.exists(ls):
+            shutil.copy2(ls, os.path.join(tmp, "Local State"))
+        # Copia o banco de cookies
+        ck_src = os.path.join(src_ud, "Default", "Network", "Cookies")
+        if os.path.exists(ck_src):
+            ck_dst = os.path.join(tmp, "Default", "Network")
+            os.makedirs(ck_dst, exist_ok=True)
+            shutil.copy2(ck_src, os.path.join(ck_dst, "Cookies"))
+        print(f"  Perfil Chrome minimo criado em: {tmp}")
+        return tmp
+    except Exception as e:
+        print(f"  AVISO: nao foi possivel copiar perfil Chrome ({e})")
+        return None
+
+def _launch_chrome_cdp(porta=9222):
+    """Lança Chrome via subprocess com remote-debugging (sem flags de automação Playwright).
+    Usa --user-data-dir isolado para garantir nova instância mesmo que Chrome já esteja aberto.
+    Copia cookies do Chrome real para o perfil CDP."""
+    if not _chrome_exe:
+        return None, None
+    try:
+        tmp_dir = tempfile.mkdtemp(prefix="robo_cdp_")
+        # Copia cookies reais para o perfil CDP
+        src_ud = os.path.join(os.path.expanduser("~"),
+                              r"AppData\Local\Google\Chrome\User Data")
+        if os.path.isdir(src_ud):
+            try:
+                ls = os.path.join(src_ud, "Local State")
+                if os.path.exists(ls):
+                    shutil.copy2(ls, os.path.join(tmp_dir, "Local State"))
+                ck_src = os.path.join(src_ud, "Default", "Network", "Cookies")
+                if os.path.exists(ck_src):
+                    ck_dst = os.path.join(tmp_dir, "Default", "Network")
+                    os.makedirs(ck_dst, exist_ok=True)
+                    shutil.copy2(ck_src, os.path.join(ck_dst, "Cookies"))
+            except Exception:
+                pass
+        cmd = [
+            _chrome_exe,
+            f"--remote-debugging-port={porta}",
+            f"--user-data-dir={tmp_dir}",
+            "--no-first-run",
+            "--no-default-browser-check",
+            "--disable-extensions",
+            "--disable-sync",
+            "--hide-crash-restore-bubble",
+            "--no-restore-state",
+        ]
+        proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"  Chrome CDP lançado (porta {porta}, perfil isolado)")
+        return proc, tmp_dir
+    except Exception as e:
+        print(f"  Erro ao lançar Chrome CDP: {e}")
+        return None, None
+
+
 with sync_playwright() as p:
-    browser = p.chromium.launch(
-        headless=HEADLESS,
-        slow_mo=30,
-        args=["--disable-blink-features=AutomationControlled"],
-    )
-    context = browser.new_context(
-        accept_downloads=True,
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/124.0.0.0 Safari/537.36"
-        ),
-    )
-    context.add_init_script(
-        "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-    )
+    _chrome_proc = None
+    _cdp_tmp_dir = None
+    _perfil_tmp  = None
+    browser      = None
+    context      = None
+
+    # Tenta abordagem CDP: Chrome lançado sem flags de automação Playwright
+    if _chrome_exe and not WEB_MODE:
+        _chrome_proc, _cdp_tmp_dir = _launch_chrome_cdp(9222)
+        if _chrome_proc:
+            time.sleep(4)  # Aguarda Chrome inicializar
+            try:
+                browser = p.chromium.connect_over_cdp("http://localhost:9222")
+                ctxs = browser.contexts
+                context = ctxs[0] if ctxs else browser.new_context(**_CONTEXT_KWARGS)
+                print("  Conectado ao Chrome via CDP (sem marcadores de automação)")
+            except Exception as e:
+                print(f"  CDP falhou: {e} — usando perfil mínimo como fallback")
+                try:
+                    _chrome_proc.terminate()
+                except Exception:
+                    pass
+                _chrome_proc = None
+                if _cdp_tmp_dir:
+                    shutil.rmtree(_cdp_tmp_dir, ignore_errors=True)
+                _cdp_tmp_dir = None
+
+    if context is None:
+        _perfil_tmp = _criar_perfil_chrome_minimo() if not WEB_MODE else None
+
+    if context is None and _perfil_tmp and _chrome_exe:
+        try:
+            context = p.chromium.launch_persistent_context(
+                _perfil_tmp,
+                executable_path=_chrome_exe,
+                headless=HEADLESS,
+                slow_mo=30,
+                args=_CHROME_ARGS,
+                **_CONTEXT_KWARGS,
+            )
+            print("  Usando perfil Chrome com cookies reais (sem session restore)")
+        except Exception as e:
+            print(f"  AVISO: perfil minimo falhou ({e}), usando contexto limpo")
+            _perfil_tmp = None
+            context = None
+
+    if context is None:
+        _launch_args = dict(headless=HEADLESS, slow_mo=30, args=_CHROME_ARGS)
+        if _chrome_exe:
+            _launch_args["executable_path"] = _chrome_exe
+        browser = p.chromium.launch(**_launch_args)
+        context = browser.new_context(**_CONTEXT_KWARGS)
+
+    _is_cdp_mode = _chrome_proc is not None
+
     page = context.new_page()
-    if _HAS_STEALTH:
+    if _is_cdp_mode:
+        # Chrome foi lançado sem --enable-automation: navigator.webdriver já é false.
+        # Não injetar scripts (Page.addScriptToEvaluateOnNewDocument é detectável pelo PX).
+        print("  Modo CDP: sem injeção de scripts de automação")
+    elif _HAS_STEALTH:
         _stealth_sync(page)
+    else:
+        context.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
 
     for i, reg in enumerate(todos, start=1):
         doc   = reg["doc"]
@@ -682,7 +1133,19 @@ with sync_playwright() as p:
             erros.append(f"{doc} ({tipo}: erro)")
 
     context.close()
-    browser.close()
+    try:
+        browser.close()
+    except Exception:
+        pass
+    if _chrome_proc:
+        try:
+            _chrome_proc.terminate()
+        except Exception:
+            pass
+    if _cdp_tmp_dir and os.path.isdir(_cdp_tmp_dir):
+        shutil.rmtree(_cdp_tmp_dir, ignore_errors=True)
+    if _perfil_tmp and os.path.isdir(_perfil_tmp):
+        shutil.rmtree(_perfil_tmp, ignore_errors=True)
 
 sucesso = total - len(erros) - len(nao_encontrados) - len(com_debitos_list) - len(ja_existentes)
 
