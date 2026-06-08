@@ -269,46 +269,27 @@ def baixar_fgts(page, context, doc, caminho):
     except PlaywrightTimeout:
         return "nao_encontrado"
     campo.click()
-    campo.fill("")
-    campo.press_sequentially(cnpj_limpo, delay=50)  # JSF precisa de eventos reais de teclado
-    campo.press("Tab")  # dispara onChange/onBlur do JSF
-    page.wait_for_timeout(800)
+    campo.fill(cnpj_limpo)
 
     page.get_by_role("button", name="Consultar").click()
-    try:
-        page.wait_for_load_state("networkidle", timeout=10000)
-    except Exception:
-        page.wait_for_timeout(5000)
 
-    # Debug: mostra estado da pagina apos consulta
+    # Aguarda o link de resultado aparecer (texto exato do codegen)
     try:
-        texto_pagina = page.locator("body").inner_text()
-        linhas = " | ".join(
-            l.strip() for l in texto_pagina.splitlines()
-            if l.strip() and len(l.strip()) > 3
-        )[:1500]
-        print(f"  [DEBUG] URL: {page.url}")
-        print(f"  [DEBUG] Texto: {linhas}")
-    except Exception as e:
-        print(f"  [DEBUG] erro: {e}")
-
-    # Verifica se irregular
-    try:
-        if page.get_by_text(re.compile(
-            r"irregular|pendenc|devedor", re.I
-        ), exact=False).first.is_visible(timeout=2000):
-            return "com_debitos"
-    except Exception:
-        pass
-
-    # Certificado de Regularidade
-    try:
-        link = page.locator('a', has_text="Certificado").first
-        link.wait_for(state="visible", timeout=8000)
-        link.click()
-        page.wait_for_timeout(1000)
+        link = page.get_by_role("link", name="Certificado de Regularidade")
+        link.wait_for(state="visible", timeout=15000)
     except PlaywrightTimeout:
+        # Verifica se portal retornou mensagem de debito/irregularidade
+        try:
+            if page.get_by_text(re.compile(
+                r"irregular|pendenc|devedor|n.o.*regular", re.I
+            ), exact=False).first.is_visible(timeout=2000):
+                return "com_debitos"
+        except Exception:
+            pass
         return "nao_encontrado"
+
+    link.click()
+    page.wait_for_timeout(1000)
 
     # Registra listeners ANTES de clicar Visualizar
     popups_cap = []
@@ -319,7 +300,7 @@ def baixar_fgts(page, context, doc, caminho):
     context.on("download", _on_dl)
 
     page.get_by_role("button", name="Visualizar").click()
-    page.wait_for_timeout(4000)
+    page.wait_for_timeout(5000)
 
     context.remove_listener("page", _on_page)
     context.remove_listener("download", _on_dl)
@@ -355,7 +336,6 @@ def baixar_fgts(page, context, doc, caminho):
                     return "ok"
             except Exception:
                 pass
-            # Fallback: page.pdf() para portais que retornam HTML
             pop.emulate_media(media="print")
             pop.pdf(path=caminho, format="A4", print_background=True)
             pop.close()
