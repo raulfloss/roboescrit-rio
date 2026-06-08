@@ -802,6 +802,11 @@ def baixar_sefaz_mt(page, context, doc, caminho):
     campo.fill(formatar_doc(doc))
     page.wait_for_timeout(500)
 
+    # Configura listeners antes de clicar
+    _dl_sefaz = []
+    _on_dl = lambda d: _dl_sefaz.append(d)
+    context.on("download", _on_dl)
+
     # Submit
     try:
         page.get_by_role("button", name=re.compile(
@@ -812,35 +817,41 @@ def baixar_sefaz_mt(page, context, doc, caminho):
             page.locator('input[type="submit"], button[type="submit"]').first.click()
         except Exception:
             page.keyboard.press("Enter")
-    page.wait_for_timeout(3000)
 
-    # Captura popup / nova aba
-    if _capturar_popup_como_pdf(page, context, caminho):
-        return "ok"
+    # Aguarda resultado: popup, download ou navegação (até 15s)
+    for _tick in range(30):
+        page.wait_for_timeout(500)
 
-    # Download direto
-    try:
-        with page.expect_download(timeout=15000) as dl:
+        # Download direto
+        if _dl_sefaz:
             try:
-                page.get_by_role("button", name=re.compile(
-                    r"baixar|download|pdf|imprimir|salvar", re.I
-                )).first.click()
+                _dl_sefaz[0].save_as(caminho)
+                context.remove_listener("download", _on_dl)
+                return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
+            except Exception:
+                break
+
+        # Popup / nova aba com o PDF
+        outras = [pg for pg in context.pages if pg != page]
+        if outras:
+            context.remove_listener("download", _on_dl)
+            return "ok" if _capturar_popup_como_pdf(page, context, caminho) else "nao_encontrado"
+
+        # PDF inline na própria aba (página mudou)
+        if page.url != URL_SEFAZ_MT and "sefaz.mt.gov.br" in page.url:
+            try:
+                page.wait_for_load_state("networkidle", timeout=5000)
             except Exception:
                 pass
-        dl.value.save_as(caminho)
-        return "ok"
-    except Exception:
-        pass
+            try:
+                page.emulate_media(media="print")
+                page.pdf(path=caminho, format="A4", print_background=True)
+                context.remove_listener("download", _on_dl)
+                return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
+            except Exception:
+                break
 
-    # PDF inline (portais Java que renderizam na mesma aba)
-    try:
-        page.emulate_media(media="print")
-        page.pdf(path=caminho, format="A4", print_background=True)
-        if os.path.exists(caminho) and os.path.getsize(caminho) > 3000:
-            return "ok"
-    except Exception:
-        pass
-
+    context.remove_listener("download", _on_dl)
     return "nao_encontrado"
 
 # ── Argumentos ────────────────────────────────────────────────────────────────
@@ -1036,6 +1047,7 @@ def _launch_chrome_cdp(porta=9222, exe=None):
             "--disable-sync",
             "--hide-crash-restore-bubble",
             "--no-restore-state",
+            "--disable-popup-blocking",
         ]
         # Docker/Railway: root + /dev/shm pequeno exigem estas flags
         if os.name != "nt":
