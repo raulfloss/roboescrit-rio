@@ -8,3 +8,4 @@ pypdf
 Pillow
 playwright-stealth
 pyvirtualdisplay
+pyautogui

@@ -753,6 +753,30 @@ def baixar_trabalhista(page, context, doc, caminho):
 
     return "nao_encontrado"
 
+# ── Clique real de OS (isTrusted=true) via pyautogui ─────────────────────────
+
+def _clicar_os(page, seletor):
+    """Clica via pyautogui (evento real de OS) — contorna isTrusted=false do CDP."""
+    try:
+        import pyautogui
+        btn = page.locator(seletor).first
+        box = btn.bounding_box()
+        if not box:
+            return False
+        pos = page.evaluate("""() => {
+            const bh = window.outerHeight - window.innerHeight;
+            return { sx: window.screenX, sy: window.screenY + bh };
+        }""")
+        sx = pos["sx"] + box["x"] + box["width"]  / 2
+        sy = pos["sy"] + box["y"] + box["height"] / 2
+        pyautogui.moveTo(int(sx), int(sy), duration=0.25)
+        page.wait_for_timeout(120)
+        pyautogui.click()
+        return True
+    except Exception as e:
+        print(f"  pyautogui indisponivel: {e}")
+        return False
+
 # ── Fluxo: SEFAZ-MT ───────────────────────────────────────────────────────────
 
 def baixar_sefaz_mt(page, context, doc, caminho):
@@ -807,20 +831,11 @@ def baixar_sefaz_mt(page, context, doc, caminho):
     _on_dl = lambda d: _dl_sefaz.append(d)
     context.on("download", _on_dl)
 
-    # Submit via JS form.submit() — contorna verificação isTrusted do site
-    submetido = False
-    try:
-        submetido = page.evaluate("""() => {
-            const forms = document.querySelectorAll('form');
-            if (!forms.length) return false;
-            forms[forms.length - 1].submit();
-            return true;
-        }""")
-    except Exception:
-        pass
-    if not submetido:
+    # Submit com clique real de OS (isTrusted=true) — SEFAZ-MT bloqueia CDP
+    sel_btn = 'input[type="submit"], button[type="submit"], input[type="button"][value*="ok" i]'
+    if not _clicar_os(page, sel_btn):
         try:
-            page.locator('input[type="submit"], button[type="submit"]').first.click()
+            page.locator(sel_btn).first.click()
         except Exception:
             page.keyboard.press("Enter")
 
