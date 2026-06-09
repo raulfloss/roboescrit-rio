@@ -28,6 +28,7 @@ def sem_cache(response):
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PASTA_CERT = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
+MEI_DIR    = os.path.join(BASE_DIR, "Emissão de Guias MEI")
 
 ARQUIVO_EXCEL = os.path.join(BASE_DIR, "cnpjs.xlsx.xlsx")
 COLUNA_CNPJ   = "CNPJ (MF) N.º"
@@ -112,84 +113,137 @@ def _rodar_job(job):
     _logs[jid] = []
     inicio_ts  = time.time()
 
-    env = os.environ.copy()
-    env["ROBO_HEADLESS"]    = "1"
-    env["ROBO_WEB"]         = "1"
-    env["PYTHONUNBUFFERED"] = "1"
-    env["ROBO_JOB_ID"]      = jid
+    is_mei = job.get("script") == "mei"
 
-    script_name = job.get("script", "robo.py")
-    args = [sys.executable, os.path.join(BASE_DIR, script_name)]
-    if script_name == "robo_geral.py":
-        args.append(job["modo"])
-    elif job["modo"] == "cnpj":
-        args += ["cnpj", job.get("cnpj", "")]
+    if is_mei:
+        env  = os.environ.copy()
+        env["PYTHONUNBUFFERED"]  = "1"
+        env["PYTHONIOENCODING"] = "utf-8"
+        args = [sys.executable, "main.py"]
+        run_dir = MEI_DIR
     else:
-        args.append(job["modo"])
+        env = os.environ.copy()
+        env["ROBO_HEADLESS"]    = "1"
+        env["ROBO_WEB"]         = "1"
+        env["PYTHONUNBUFFERED"] = "1"
+        env["ROBO_JOB_ID"]      = jid
+        run_dir = BASE_DIR
+
+        script_name = job.get("script", "robo.py")
+        args = [sys.executable, os.path.join(BASE_DIR, script_name)]
+        if script_name == "robo_geral.py":
+            args.append(job["modo"])
+        elif job["modo"] == "cnpj":
+            args += ["cnpj", job.get("cnpj", "")]
+        else:
+            args.append(job["modo"])
 
     job["inicio"] = datetime.now().strftime("%d/%m %H:%M")
     job["status"] = "rodando"
 
-    cnpj_atual     = ""
-    erros_detalhe  = []
-    em_relatorio   = False
+    cnpj_atual       = ""
+    erros_detalhe    = []
+    em_relatorio     = False
     relatorio_linhas = []
 
     try:
         proc = subprocess.Popen(
             args,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL if is_mei else subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
             text=True, encoding="utf-8", errors="replace",
-            env=env, cwd=BASE_DIR,
+            env=env, cwd=run_dir,
         )
         _proc_atual = proc
+        _em_traceback = False
         for linha in proc.stdout:
             linha = linha.rstrip()
             if not linha:
+                _em_traceback = False
                 continue
+            stripped = linha.strip()
+            # Detecta início de traceback Python
+            if stripped == 'Traceback (most recent call last):' or stripped.startswith('Traceback ('):
+                _em_traceback = True
+                continue
+            if _em_traceback:
+                # Linha de frame: File "...", linha de código indentada, ou continuação
+                if (stripped.startswith('File "') or
+                        linha.startswith('    ') or
+                        linha.startswith('  File') or
+                        stripped.startswith('During handling')):
+                    continue
+                # Linha final do traceback (ex: "RuntimeError: ..." ou "EOFError")
+                if re.match(r'^[A-Z][a-zA-Z]+Error', stripped) or re.match(r'^[A-Z][a-zA-Z]+Exception', stripped):
+                    _em_traceback = False
+                    continue
+                _em_traceback = False
             _logs[jid].append(linha)
 
-            # Rastreia CNPJ atual: "[1/141] CNPJ: 12345678000195 | ..."
-            if linha.startswith("[") and "CNPJ:" in linha:
-                try:
-                    cnpj_atual = linha.split("CNPJ:")[1].split("|")[0].strip()
-                except Exception:
-                    pass
+            if is_mei:
+                # Formato MEI: "HH:MM:SS | INFO     | [1/50] Nome  |  CNPJ: ..."
+                m = re.search(r'\[(\d+)/(\d+)\]', linha)
+                if m:
+                    try:
+                        job["total"] = int(m.group(2))
+                    except Exception:
+                        pass
+                if "CNPJ:" in linha:
+                    try:
+                        cnpj_atual = linha.split("CNPJ:")[-1].strip().split()[0]
+                    except Exception:
+                        pass
+                # Linhas de resultado têm formato: "| INFO | [✓/✗] STATUS — detalhes"
+                if "| INFO" in linha and "SUCESSO" in linha and "—" in linha:
+                    job["sucesso"] = job.get("sucesso", 0) + 1
+                if "| INFO" in linha and "ERRO" in linha and "—" in linha:
+                    job["erros"] = job.get("erros", 0) + 1
+                    partes = linha.split("—", 1)
+                    motivo = partes[1].strip()[:120] if len(partes) > 1 else linha.split("|")[-1].strip()[:120]
+                    if cnpj_atual:
+                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": motivo})
+            else:
+                # Rastreia CNPJ atual: "[1/141] CNPJ: 12345678000195 | ..."
+                if linha.startswith("[") and "CNPJ:" in linha:
+                    try:
+                        cnpj_atual = linha.split("CNPJ:")[1].split("|")[0].strip()
+                    except Exception:
+                        pass
 
-            # Captura bloco do relatório final
-            if "--- Processamento finalizado ---" in linha:
-                em_relatorio = True
-            if em_relatorio:
-                relatorio_linhas.append(linha)
+                if "--- Processamento finalizado ---" in linha:
+                    em_relatorio = True
+                if em_relatorio:
+                    relatorio_linhas.append(linha)
 
-            if "CNPJs selecionados" in linha:
-                try:
-                    job["total"] = int(linha.split("|")[1].strip().split()[0])
-                except Exception:
-                    pass
-            if ("Certidão" in linha or "Certidao" in linha) and "salva:" in linha:
-                job["sucesso"] = job.get("sucesso", 0) + 1
-            if "TIMEOUT:" in linha:
-                job["erros"] = job.get("erros", 0) + 1
-                if cnpj_atual:
-                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Timeout — portal demorou demais"})
-            elif "ERRO:" in linha:
-                job["erros"] = job.get("erros", 0) + 1
-                motivo = linha.split("ERRO:", 1)[-1].strip()[:120]
-                if cnpj_atual:
-                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": f"Erro: {motivo}"})
-            elif "não encontrado na base" in linha.lower() or "nao encontrado" in linha.lower():
-                if cnpj_atual:
-                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ não encontrado no portal"})
-            elif "com débitos" in linha.lower() or "com debitos" in linha.lower():
-                if cnpj_atual:
-                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ com débitos"})
-            elif "sem portal" in linha.lower() or "não suportado" in linha.lower() or "nao suportado" in linha.lower():
-                if cnpj_atual:
-                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Cidade sem portal cadastrado"})
-            elif "captcha falhou" in linha.lower():
-                if cnpj_atual:
-                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Captcha não resolvido"})
+                if "CNPJs selecionados" in linha:
+                    try:
+                        job["total"] = int(linha.split("|")[1].strip().split()[0])
+                    except Exception:
+                        pass
+                if ("Certidão" in linha or "Certidao" in linha) and "salva:" in linha:
+                    job["sucesso"] = job.get("sucesso", 0) + 1
+                if "TIMEOUT:" in linha:
+                    job["erros"] = job.get("erros", 0) + 1
+                    if cnpj_atual:
+                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Timeout — portal demorou demais"})
+                elif "ERRO:" in linha:
+                    job["erros"] = job.get("erros", 0) + 1
+                    motivo = linha.split("ERRO:", 1)[-1].strip()[:120]
+                    if cnpj_atual:
+                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": f"Erro: {motivo}"})
+                elif "não encontrado na base" in linha.lower() or "nao encontrado" in linha.lower():
+                    if cnpj_atual:
+                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ não encontrado no portal"})
+                elif "com débitos" in linha.lower() or "com debitos" in linha.lower():
+                    if cnpj_atual:
+                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ com débitos"})
+                elif "sem portal" in linha.lower() or "não suportado" in linha.lower() or "nao suportado" in linha.lower():
+                    if cnpj_atual:
+                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Cidade sem portal cadastrado"})
+                elif "captcha falhou" in linha.lower():
+                    if cnpj_atual:
+                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Captcha não resolvido"})
 
         proc.wait()
         if job["status"] != "cancelado":
@@ -202,22 +256,33 @@ def _rodar_job(job):
 
     job["erros_detalhe"]  = erros_detalhe
     job["relatorio_txt"]  = "\n".join(relatorio_linhas)
-
     job["fim"] = datetime.now().strftime("%d/%m %H:%M")
 
-    pasta_job = os.path.join(PASTA_CERT, jid)
-    pdfs = []
-    for sub in ("negativas", "positivas"):
-        pasta_sub = os.path.join(pasta_job, sub)
-        if os.path.exists(pasta_sub):
-            for cidade in os.listdir(pasta_sub):
-                pasta_cidade = os.path.join(pasta_sub, cidade)
-                if os.path.isdir(pasta_cidade):
-                    for arq in os.listdir(pasta_cidade):
-                        if arq.endswith(".pdf"):
-                            pdfs.append(f"{sub}/{cidade}/{arq}")
-    job["pdfs"]      = pdfs
-    job["pasta_job"] = pasta_job
+    if is_mei:
+        downloads_dir = os.path.join(MEI_DIR, "downloads")
+        pdfs = []
+        if os.path.exists(downloads_dir):
+            for root, dirs, files in os.walk(downloads_dir):
+                for arq in files:
+                    if arq.endswith(".pdf"):
+                        rel = os.path.relpath(os.path.join(root, arq), downloads_dir).replace(os.sep, "/")
+                        pdfs.append(rel)
+        job["pdfs"]      = pdfs
+        job["pasta_job"] = downloads_dir
+    else:
+        pasta_job = os.path.join(PASTA_CERT, jid)
+        pdfs = []
+        for sub in ("negativas", "positivas"):
+            pasta_sub = os.path.join(pasta_job, sub)
+            if os.path.exists(pasta_sub):
+                for cidade in os.listdir(pasta_sub):
+                    pasta_cidade = os.path.join(pasta_sub, cidade)
+                    if os.path.isdir(pasta_cidade):
+                        for arq in os.listdir(pasta_cidade):
+                            if arq.endswith(".pdf"):
+                                pdfs.append(f"{sub}/{cidade}/{arq}")
+        job["pdfs"]      = pdfs
+        job["pasta_job"] = pasta_job
 
     with _lock:
         historico.insert(0, dict(job))
@@ -446,6 +511,26 @@ def api_iniciar_geral():
         "usuario": usuario,
         "script":  "robo_geral.py",
         "modo":    ",".join(tipos),
+        "status":  "aguardando",
+        "inicio":  None, "fim": None,
+        "total":   0,    "sucesso": 0, "erros": 0,
+        "pdfs":    [],
+    }
+    with _lock:
+        fila.append(job)
+        _verificar_fila()
+    return jsonify({"ok": True, "job_id": job["id"]})
+
+@app.route("/api/iniciar_mei", methods=["POST"])
+@login_required
+def api_iniciar_mei():
+    data    = request.get_json() or {}
+    usuario = (data.get("usuario") or "Usuário").strip()[:40]
+    job = {
+        "id":      uuid.uuid4().hex[:8],
+        "usuario": usuario,
+        "script":  "mei",
+        "modo":    "mei",
         "status":  "aguardando",
         "inicio":  None, "fim": None,
         "total":   0,    "sucesso": 0, "erros": 0,

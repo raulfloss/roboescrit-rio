@@ -1,0 +1,15 @@
+dist/
+build/
+*.spec
+__pycache__/
+*.pyc
+captcha_capturado.png
+debug_*.png
+~$*
+historico.json
+
+# MEI — gerado em execução, não vai pro repositório
+Emissão de Guias MEI/browser_profile/
+Emissão de Guias MEI/downloads/
+Emissão de Guias MEI/logs/
+Emissão de Guias MEI/relatorios/

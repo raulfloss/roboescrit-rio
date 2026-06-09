@@ -753,25 +753,65 @@ def baixar_trabalhista(page, context, doc, caminho):
 
     return "nao_encontrado"
 
-# ── Clique real de OS (isTrusted=true) via pyautogui ─────────────────────────
+# ── Clique real de OS (isTrusted=true, cursor restaurado) ─────────────────────
 
 def _clicar_os(page, seletor):
-    """Clica via pyautogui (evento real de OS) — contorna isTrusted=false do CDP."""
+    """SendInput com save/restore de cursor — mouse volta ao lugar após o clique."""
+    btn = page.locator(seletor).first
+    box = btn.bounding_box()
+    if not box:
+        return False
+    pos = page.evaluate("""() => {
+        const bh = window.outerHeight - window.innerHeight;
+        return { sx: window.screenX, sy: window.screenY + bh };
+    }""")
+    sx = int(pos["sx"] + box["x"] + box["width"]  / 2)
+    sy = int(pos["sy"] + box["y"] + box["height"] / 2)
+
+    if os.name == "nt":
+        try:
+            import ctypes
+            PUL = ctypes.POINTER(ctypes.c_ulong)
+            class MouseInput(ctypes.Structure):
+                _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                             ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                             ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
+            class Input(ctypes.Structure):
+                class _I(ctypes.Union):
+                    _fields_ = [("mi", MouseInput)]
+                _anonymous_ = ("_i",)
+                _fields_  = [("type", ctypes.c_ulong), ("_i", _I)]
+
+            sw = ctypes.windll.user32.GetSystemMetrics(0)
+            sh = ctypes.windll.user32.GetSystemMetrics(1)
+
+            class POINT(ctypes.Structure):
+                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+            orig = POINT()
+            ctypes.windll.user32.GetCursorPos(ctypes.byref(orig))
+
+            def _send(flags, dx, dy):
+                i = Input()
+                i.type = 0
+                i.mi.dx, i.mi.dy = int(dx * 65535 / sw), int(dy * 65535 / sh)
+                i.mi.dwFlags = flags
+                ctypes.windll.user32.SendInput(1, ctypes.byref(i), ctypes.sizeof(i))
+
+            _send(0x0001 | 0x8000, sx, sy)   # mover
+            time.sleep(0.12)
+            _send(0x0002 | 0x8000, sx, sy)   # down
+            time.sleep(0.05)
+            _send(0x0004 | 0x8000, sx, sy)   # up
+            time.sleep(0.05)
+            _send(0x0001 | 0x8000, orig.x, orig.y)  # restaura cursor
+            print(f"  SendInput click ({sx},{sy}) → cursor restaurado")
+            return True
+        except Exception as e:
+            print(f"  SendInput falhou: {e}")
+
     try:
         import pyautogui
-        btn = page.locator(seletor).first
-        box = btn.bounding_box()
-        if not box:
-            return False
-        pos = page.evaluate("""() => {
-            const bh = window.outerHeight - window.innerHeight;
-            return { sx: window.screenX, sy: window.screenY + bh };
-        }""")
-        sx = pos["sx"] + box["x"] + box["width"]  / 2
-        sy = pos["sy"] + box["y"] + box["height"] / 2
-        pyautogui.moveTo(int(sx), int(sy), duration=0.25)
-        page.wait_for_timeout(120)
-        pyautogui.click()
+        pyautogui.click(sx, sy)
         return True
     except Exception as e:
         print(f"  pyautogui indisponivel: {e}")
@@ -792,7 +832,34 @@ def baixar_sefaz_mt(page, context, doc, caminho):
                 page.wait_for_timeout((tentativa + 1) * 4000)
             else:
                 return "nao_encontrado"
-    page.wait_for_timeout(1500)
+    # Espera Cloudflare Turnstile resolver e formulário aparecer (até 40s)
+    _sel_radio = 'input[type="radio"]'
+    _sel_campo = 'input[type="text"]:visible'
+    _formulario_ok = False
+    for _cf in range(40):
+        try:
+            if page.locator(_sel_radio).first.is_visible(timeout=600):
+                _formulario_ok = True
+                break
+        except Exception:
+            pass
+        # Se o checkbox do Cloudflare aparecer, clica com OS click
+        try:
+            cf_frame = page.frame_locator('iframe[src*="challenges.cloudflare.com"]')
+            cf_cb = cf_frame.locator('input[type="checkbox"]')
+            if cf_cb.is_visible(timeout=300):
+                cf_cb.scroll_into_view_if_needed()
+                _clicar_os(page, 'iframe[src*="challenges.cloudflare.com"]')
+        except Exception:
+            pass
+        page.wait_for_timeout(1000)
+
+    if not _formulario_ok:
+        print("  SEFAZ-MT: formulário não apareceu após Cloudflare")
+        return "nao_encontrado"
+
+    # Aguarda TSPD/ThreatMetrix carregar tokens antes de submeter
+    page.wait_for_timeout(3500)
 
     eh_cpf = len(re.sub(r"\D", "", doc)) == 11
 
@@ -819,61 +886,112 @@ def baixar_sefaz_mt(page, context, doc, caminho):
         'input[type="text"]:visible'
     ).first
     try:
-        campo.wait_for(state="visible", timeout=15000)
+        campo.wait_for(state="visible", timeout=8000)
     except PlaywrightTimeout:
         return "nao_encontrado"
     campo.click()
     campo.fill(formatar_doc(doc))
     page.wait_for_timeout(500)
 
-    # Configura listeners antes de clicar
+    # Listeners de download antes do clique
     _dl_sefaz = []
     _on_dl = lambda d: _dl_sefaz.append(d)
     context.on("download", _on_dl)
 
-    # Submit com clique real de OS (isTrusted=true) — SEFAZ-MT bloqueia CDP
     sel_btn = 'input[type="submit"], button[type="submit"], input[type="button"][value*="ok" i]'
-    if not _clicar_os(page, sel_btn):
-        try:
-            page.locator(sel_btn).first.click()
-        except Exception:
-            page.keyboard.press("Enter")
 
-    # Aguarda resultado: popup, download ou navegação (até 15s)
-    for _tick in range(30):
-        page.wait_for_timeout(500)
+    # SendInput: único método confiável para o submit do SEFAZ-MT (cursor restaurado)
+    try:
+        with page.expect_navigation(wait_until="domcontentloaded", timeout=20000):
+            _clicar_os(page, sel_btn)
+    except Exception as e:
+        print(f"  SEFAZ-MT: navegação não detectada ({e})")
+        context.remove_listener("download", _on_dl)
+        return "nao_encontrado"
 
-        # Download direto
-        if _dl_sefaz:
-            try:
-                _dl_sefaz[0].save_as(caminho)
-                context.remove_listener("download", _on_dl)
-                return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
-            except Exception:
-                break
-
-        # Popup / nova aba com o PDF
-        outras = [pg for pg in context.pages if pg != page]
-        if outras:
-            context.remove_listener("download", _on_dl)
-            return "ok" if _capturar_popup_como_pdf(page, context, caminho) else "nao_encontrado"
-
-        # PDF inline na própria aba (página mudou)
-        if page.url != URL_SEFAZ_MT and "sefaz.mt.gov.br" in page.url:
-            try:
-                page.wait_for_load_state("networkidle", timeout=5000)
-            except Exception:
-                pass
-            try:
-                page.emulate_media(media="print")
-                page.pdf(path=caminho, format="A4", print_background=True)
-                context.remove_listener("download", _on_dl)
-                return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
-            except Exception:
-                break
+    # Aguarda rede estabilizar
+    try:
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass
+    page.wait_for_timeout(800)
 
     context.remove_listener("download", _on_dl)
-    return "nao_encontrado"
+
+    # Se a página resultante for erro de conexão, não prosseguir
+    try:
+        if page.locator("text=ERR_CONNECTION_RESET").is_visible(timeout=1000) or \
+           page.locator("text=A ligação foi reposta").is_visible(timeout=500):
+            print("  SEFAZ-MT: servidor resetou conexão no submit — nao_encontrado")
+            return "nao_encontrado"
+    except Exception:
+        pass
+
+    # Download direto (raro, mas possível)
+    if _dl_sefaz:
+        try:
+            _dl_sefaz[0].save_as(caminho)
+            return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
+        except Exception:
+            pass
+
+    # Popup já aberto antes de qualquer clique
+    outras = [pg for pg in context.pages if pg != page]
+    if outras:
+        return "ok" if _capturar_popup_como_pdf(page, context, caminho) else "nao_encontrado"
+
+    # Página intermediária: prefere "Emitir nova Certidão", aceita "Reimprimir"
+    _link_cert = None
+    for _sel_link in ['a:has-text("Emitir")', 'a:has-text("Reimprimir")']:
+        try:
+            if page.locator(_sel_link).first.is_visible(timeout=2000):
+                _link_cert = _sel_link
+                break
+        except Exception:
+            pass
+
+    if _link_cert:
+        print(f"  SEFAZ-MT: página intermediária — clicando '{_link_cert}'")
+        try:
+            with page.expect_popup(timeout=20000) as _pop_info:
+                page.locator(_sel_link).first.click()  # bot check já passou
+            _pop = _pop_info.value
+            try:
+                _pop.wait_for_load_state("networkidle", timeout=15000)
+            except Exception:
+                pass
+            page.wait_for_timeout(500)
+            _pop.emulate_media(media="print")
+            _pop.pdf(path=caminho, format="A4", print_background=True)
+            try:
+                _pop.close()
+            except Exception:
+                pass
+            return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
+        except Exception as e:
+            print(f"  SEFAZ-MT: erro ao capturar popup intermediário: {e}")
+            # Fallback: popup abriu sem expect_popup
+            outras2 = [pg for pg in context.pages if pg != page]
+            if outras2:
+                return "ok" if _capturar_popup_como_pdf(page, context, caminho) else "nao_encontrado"
+
+    # Verifica débitos na página resultante
+    try:
+        if page.get_by_text(re.compile(
+            r"devedor|pendenc|inscrit|irregular", re.I
+        ), exact=False).first.is_visible(timeout=2000):
+            return "com_debitos"
+    except Exception:
+        pass
+
+    # Renderiza a página de resultado como PDF
+    try:
+        page.emulate_media(media="print")
+        page.pdf(path=caminho, format="A4", print_background=True)
+        return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
+    except Exception as e:
+        print(f"  SEFAZ-MT: erro ao gerar PDF: {e}")
+        return "nao_encontrado"
 
 # ── Argumentos ────────────────────────────────────────────────────────────────
 
@@ -1096,13 +1214,21 @@ with sync_playwright() as p:
             print(f"  Usando Chromium bundled do Playwright para CDP: {_cdp_exe}")
         _chrome_proc, _cdp_tmp_dir = _launch_chrome_cdp(9222, exe=_cdp_exe)
         if _chrome_proc:
-            time.sleep(4)  # Aguarda Chrome inicializar
-            try:
-                browser = p.chromium.connect_over_cdp("http://localhost:9222")
+            # Polling: tenta conectar a cada 500ms por até 15s
+            browser = None
+            for _t in range(30):
+                time.sleep(0.5)
+                try:
+                    browser = p.chromium.connect_over_cdp("http://localhost:9222")
+                    break
+                except Exception:
+                    pass
+            if browser:
                 ctxs = browser.contexts
                 context = ctxs[0] if ctxs else browser.new_context(**_CONTEXT_KWARGS)
                 print("  Conectado ao Chrome via CDP (sem marcadores de automação)")
-            except Exception as e:
+            if not browser:
+                e = "porta 9222 não respondeu em 15s"
                 print(f"  CDP falhou: {e} — usando perfil mínimo como fallback")
                 try:
                     _chrome_proc.terminate()
