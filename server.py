@@ -28,7 +28,6 @@ def sem_cache(response):
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
 PASTA_CERT = os.path.join(os.path.expanduser("~"), "Documents", "certidões")
-MEI_DIR    = os.path.join(BASE_DIR, "Emissão de Guias MEI")
 
 ARQUIVO_EXCEL = os.path.join(BASE_DIR, "cnpjs.xlsx.xlsx")
 COLUNA_CNPJ   = "CNPJ (MF) N.º"
@@ -113,30 +112,21 @@ def _rodar_job(job):
     _logs[jid] = []
     inicio_ts  = time.time()
 
-    is_mei = job.get("script") == "mei"
+    env = os.environ.copy()
+    env["ROBO_HEADLESS"]    = "1"
+    env["ROBO_WEB"]         = "1"
+    env["PYTHONUNBUFFERED"] = "1"
+    env["ROBO_JOB_ID"]      = jid
+    run_dir = BASE_DIR
 
-    if is_mei:
-        env  = os.environ.copy()
-        env["PYTHONUNBUFFERED"]  = "1"
-        env["PYTHONIOENCODING"] = "utf-8"
-        args = [sys.executable, "main.py"]
-        run_dir = MEI_DIR
+    script_name = job.get("script", "robo.py")
+    args = [sys.executable, os.path.join(BASE_DIR, script_name)]
+    if script_name == "robo_geral.py":
+        args.append(job["modo"])
+    elif job["modo"] == "cnpj":
+        args += ["cnpj", job.get("cnpj", "")]
     else:
-        env = os.environ.copy()
-        env["ROBO_HEADLESS"]    = "1"
-        env["ROBO_WEB"]         = "1"
-        env["PYTHONUNBUFFERED"] = "1"
-        env["ROBO_JOB_ID"]      = jid
-        run_dir = BASE_DIR
-
-        script_name = job.get("script", "robo.py")
-        args = [sys.executable, os.path.join(BASE_DIR, script_name)]
-        if script_name == "robo_geral.py":
-            args.append(job["modo"])
-        elif job["modo"] == "cnpj":
-            args += ["cnpj", job.get("cnpj", "")]
-        else:
-            args.append(job["modo"])
+        args.append(job["modo"])
 
     job["inicio"] = datetime.now().strftime("%d/%m %H:%M")
     job["status"] = "rodando"
@@ -181,30 +171,7 @@ def _rodar_job(job):
                 _em_traceback = False
             _logs[jid].append(linha)
 
-            if is_mei:
-                # Formato MEI: "HH:MM:SS | INFO     | [1/50] Nome  |  CNPJ: ..."
-                m = re.search(r'\[(\d+)/(\d+)\]', linha)
-                if m:
-                    try:
-                        job["total"] = int(m.group(2))
-                    except Exception:
-                        pass
-                if "CNPJ:" in linha:
-                    try:
-                        cnpj_atual = linha.split("CNPJ:")[-1].strip().split()[0]
-                    except Exception:
-                        pass
-                # Linha de resultado: "| INFO     |   [OK] SUCESSO | ..." ou "[FALHOU] ERRO | ..."
-                if "| INFO" in linha and "[OK] SUCESSO" in linha:
-                    job["sucesso"] = job.get("sucesso", 0) + 1
-                if "| INFO" in linha and "[FALHOU]" in linha:
-                    job["erros"] = job.get("erros", 0) + 1
-                    partes = linha.split("|", 4)
-                    motivo = partes[-1].strip()[:120] if len(partes) >= 4 else linha.split("|")[-1].strip()[:120]
-                    if cnpj_atual:
-                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": motivo})
-            else:
-                # Rastreia CNPJ atual: "[1/141] CNPJ: 12345678000195 | ..."
+            # Rastreia CNPJ atual: "[1/141] CNPJ: 12345678000195 | ..."
                 if linha.startswith("[") and "CNPJ:" in linha:
                     try:
                         cnpj_atual = linha.split("CNPJ:")[1].split("|")[0].strip()
@@ -258,31 +225,19 @@ def _rodar_job(job):
     job["relatorio_txt"]  = "\n".join(relatorio_linhas)
     job["fim"] = datetime.now().strftime("%d/%m %H:%M")
 
-    if is_mei:
-        downloads_dir = os.path.join(MEI_DIR, "downloads")
-        pdfs = []
-        if os.path.exists(downloads_dir):
-            for root, dirs, files in os.walk(downloads_dir):
-                for arq in files:
-                    if arq.endswith(".pdf"):
-                        rel = os.path.relpath(os.path.join(root, arq), downloads_dir).replace(os.sep, "/")
-                        pdfs.append(rel)
-        job["pdfs"]      = pdfs
-        job["pasta_job"] = downloads_dir
-    else:
-        pasta_job = os.path.join(PASTA_CERT, jid)
-        pdfs = []
-        for sub in ("negativas", "positivas"):
-            pasta_sub = os.path.join(pasta_job, sub)
-            if os.path.exists(pasta_sub):
-                for cidade in os.listdir(pasta_sub):
-                    pasta_cidade = os.path.join(pasta_sub, cidade)
-                    if os.path.isdir(pasta_cidade):
-                        for arq in os.listdir(pasta_cidade):
-                            if arq.endswith(".pdf"):
-                                pdfs.append(f"{sub}/{cidade}/{arq}")
-        job["pdfs"]      = pdfs
-        job["pasta_job"] = pasta_job
+    pasta_job = os.path.join(PASTA_CERT, jid)
+    pdfs = []
+    for sub in ("negativas", "positivas"):
+        pasta_sub = os.path.join(pasta_job, sub)
+        if os.path.exists(pasta_sub):
+            for cidade in os.listdir(pasta_sub):
+                pasta_cidade = os.path.join(pasta_sub, cidade)
+                if os.path.isdir(pasta_cidade):
+                    for arq in os.listdir(pasta_cidade):
+                        if arq.endswith(".pdf"):
+                            pdfs.append(f"{sub}/{cidade}/{arq}")
+    job["pdfs"]      = pdfs
+    job["pasta_job"] = pasta_job
 
     with _lock:
         historico.insert(0, dict(job))
@@ -511,26 +466,6 @@ def api_iniciar_geral():
         "usuario": usuario,
         "script":  "robo_geral.py",
         "modo":    ",".join(tipos),
-        "status":  "aguardando",
-        "inicio":  None, "fim": None,
-        "total":   0,    "sucesso": 0, "erros": 0,
-        "pdfs":    [],
-    }
-    with _lock:
-        fila.append(job)
-        _verificar_fila()
-    return jsonify({"ok": True, "job_id": job["id"]})
-
-@app.route("/api/iniciar_mei", methods=["POST"])
-@login_required
-def api_iniciar_mei():
-    data    = request.get_json() or {}
-    usuario = (data.get("usuario") or "Usuário").strip()[:40]
-    job = {
-        "id":      uuid.uuid4().hex[:8],
-        "usuario": usuario,
-        "script":  "mei",
-        "modo":    "mei",
         "status":  "aguardando",
         "inicio":  None, "fim": None,
         "total":   0,    "sucesso": 0, "erros": 0,

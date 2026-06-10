@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Robô de Certidões</title>
+<link rel="icon" type="image/png" href="/static/logo.png.png">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f0f2f5;color:#1a1a2e;min-height:100vh}
@@ -142,10 +143,7 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 </div>
 
 <header>
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-    <rect x="3" y="3" width="18" height="18" rx="3" fill="#4f46e5"/>
-    <path d="M7 8h10M7 12h10M7 16h6" stroke="white" stroke-width="1.8" stroke-linecap="round"/>
-  </svg>
+  <img src="/static/logo.png.png" alt="Logo" style="height:38px;width:auto;border-radius:6px">
   <div>
     <h1>Robô de Certidões Negativas<small>escritório</small></h1>
   </div>
@@ -159,7 +157,6 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
   <button class="tab-btn" onclick="trocarTab('fgts',this)">💼 FGTS</button>
   <button class="tab-btn" onclick="trocarTab('trabalhista',this)">⚖️ Trabalhista</button>
   <button class="tab-btn" onclick="trocarTab('estadual-mt',this)">🗺️ Estadual MT</button>
-  <button class="tab-btn" onclick="trocarTab('mei',this)">🧾 Guias MEI</button>
 </nav>
 
 <!-- ══ Tab: Municipais ══════════════════════════════════════════════════════ -->
@@ -405,44 +402,6 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 </div>
 </div><!-- /tab-estadual-mt -->
 
-<!-- ══ Tab: Guias MEI ═════════════════════════════════════════════════════════ -->
-<div id="tab-mei" class="tab-panel">
-<div class="wrap">
-  <div>
-    <div class="card" style="margin-bottom:18px">
-      <div class="card-title">Guias DAS — MEI</div>
-      <div class="tipo-info" style="border-left:4px solid #7c3aed">
-        <strong>Emissão de Guia de Pagamento (DAS)</strong>
-        <span>Portal PGMEI — Receita Federal</span>
-        <span class="tipo-aplica">Apenas MEI (Microempreendedor Individual)</span>
-      </div>
-      <div style="margin-top:10px;padding:10px 12px;background:#f5f3ff;border-radius:8px;font-size:.81rem;color:#5b21b6;line-height:1.5">
-        <strong>ℹ️ Sobre o captcha:</strong> O portal MEI exige verificação manual na primeira vez.
-        Um navegador abrirá automaticamente — resolva o captcha quando solicitado.
-        O robô assume sozinho após a liberação. Você pode continuar trabalhando normalmente.
-      </div>
-      <button class="btn-start" id="btn-iniciar-mei" onclick="iniciarMei()" style="margin-top:14px;background:#7c3aed">
-        ▶ Iniciar Guias MEI
-      </button>
-    </div>
-    <div class="card">
-      <div class="card-title">Fila de Espera</div>
-      <div id="painel-mei-fila"><div class="empty">Nenhum job aguardando</div></div>
-    </div>
-  </div>
-  <div class="right-col">
-    <div class="card">
-      <div class="card-title">Em Andamento</div>
-      <div id="painel-mei-atual"><div class="empty">Nenhum processamento em execução</div></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Histórico</div>
-      <div id="painel-mei-hist"><div class="empty">Nenhum job concluído ainda</div></div>
-    </div>
-  </div>
-</div>
-</div><!-- /tab-mei -->
-
 <script>
 // ── nome salvo ────────────────────────────────────────────────────────────────
 const $nome = document.getElementById("inp-nome");
@@ -630,18 +589,16 @@ function renderHistorico(hist) {
 let _historico = [];
 
 function isGeralJob(j) { return j && j.script === "robo_geral.py"; }
-function isMeiJob(j)   { return j && j.script === "mei"; }
 
 const TIPO_LABEL = {
   fgts:        "FGTS (CRF)",
   trabalhista: "Trabalhista (CNDT)",
   estadual_mt: "Estadual MT",
-  mei:         "Guias MEI (DAS)",
 };
 
 // Estado de log independente por tipo
 const _logState = {};
-["fgts","trabalhista","estadual_mt","mei"].forEach(t => {
+["fgts","trabalhista","estadual_mt"].forEach(t => {
   _logState[t] = { offset: 0, jobId: null, timer: null };
 });
 
@@ -745,78 +702,6 @@ async function iniciarTipo(tipo) {
   finally { if (btnEl) btnEl.disabled = false; }
 }
 
-async function iniciarMei() {
-  const nome = $nome.value.trim();
-  if (!nome) { alert("Informe seu nome (aba Municipais) antes de iniciar."); return; }
-  const btn = document.getElementById("btn-iniciar-mei");
-  if (btn) btn.disabled = true;
-  try {
-    const r = await fetch("/api/iniciar_mei", {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ usuario: nome })
-    });
-    const d = await r.json();
-    if (d.erro) { alert(d.erro); return; }
-    atualizarStatus();
-  } catch(e) { alert("Erro ao conectar com o servidor."); }
-  finally { if (btn) btn.disabled = false; }
-}
-
-function renderMeiAtual(job) {
-  const el = document.getElementById("painel-mei-atual");
-  if (!el) return;
-  if (!job) { el.innerHTML = '<div class="empty">Nenhum processamento em execução</div>'; return; }
-  const feitos = (job.sucesso||0) + (job.erros||0);
-  const pct    = job.total > 0 ? Math.round(feitos / job.total * 100) : 0;
-  el.innerHTML = `
-    <div class="job-header">
-      <div><div class="job-user">${job.usuario}</div><div class="job-mode">Guias MEI (DAS)</div></div>
-      <div style="display:flex;align-items:center;gap:10px">
-        ${badge(job.status)}
-        ${job.status==="rodando"?'<button class="btn-parar" onclick="pararJob()">⏹ Parar</button>':""}
-      </div>
-    </div>
-    ${job.total>0?`
-    <div class="stat-row">
-      <div class="stat"><strong>${job.sucesso||0}</strong><span>Guias</span></div>
-      <div class="stat"><strong>${job.erros||0}</strong><span>Erros</span></div>
-      <div class="stat"><strong>${feitos}/${job.total}</strong><span>Processados</span></div>
-      <div class="stat"><strong>${pct}%</strong><span>Progresso</span></div>
-    </div>
-    <div class="progress"><div class="progress-fill" style="width:${pct}%;background:#7c3aed"></div></div>`:""}
-    <div class="log-box" id="log-mei-live"></div>`;
-  iniciarLogTipo("mei", job.id);
-}
-
-function renderMeiFila(fila) {
-  const el = document.getElementById("painel-mei-fila");
-  if (!el) return;
-  if (!fila.length) { el.innerHTML = '<div class="empty">Nenhum job aguardando</div>'; return; }
-  el.innerHTML = fila.map((j,i) => `
-    <div class="queue-item">
-      <div class="q-num">${i+1}</div>
-      <div><strong>${j.usuario}</strong> <span style="color:#888">— Guias MEI</span></div>
-    </div>`).join("");
-}
-
-function renderMeiHistorico(hist) {
-  const el = document.getElementById("painel-mei-hist");
-  if (!el) return;
-  const lista = hist.filter(j => isMeiJob(j));
-  if (!lista.length) { el.innerHTML = '<div class="empty">Nenhum job concluído ainda</div>'; return; }
-  el.innerHTML = `<table>
-    <thead><tr><th>Início</th><th>Usuário</th><th>Status</th><th>Guias</th><th>Erros</th><th>Download</th></tr></thead>
-    <tbody>${lista.map(j=>`<tr>
-      <td>${j.inicio||"—"}</td>
-      <td><strong>${j.usuario}</strong></td>
-      <td>${badge(j.status)}</td>
-      <td style="color:#7c3aed;font-weight:700">${j.sucesso||0}/${j.total||0}</td>
-      <td style="color:${j.erros>0?"#dc2626":"#888"};font-weight:700">${j.erros||0}</td>
-      <td>${j.pdfs&&j.pdfs.length?`<a class="btn-dl" href="/api/download/${j.id}" style="background:#ede9fe;color:#7c3aed">⬇ ${j.pdfs.length} PDFs</a>`:"—"}</td>
-    </tr>`).join("")}</tbody>
-  </table>`;
-}
-
 async function atualizarStatus() {
   try {
     const r = await fetch("/api/status");
@@ -824,10 +709,10 @@ async function atualizarStatus() {
     _historico = d.historico || [];
 
     // Aba Processamento — apenas jobs municipais
-    const jobMun = d.job_atual && !isGeralJob(d.job_atual) && !isMeiJob(d.job_atual) ? d.job_atual : null;
+    const jobMun = d.job_atual && !isGeralJob(d.job_atual) ? d.job_atual : null;
     renderAtual(jobMun);
-    renderFila((d.fila||[]).filter(j => !isGeralJob(j) && !isMeiJob(j)));
-    renderHistorico(_historico.filter(j => !isGeralJob(j) && !isMeiJob(j)));
+    renderFila((d.fila||[]).filter(j => !isGeralJob(j)));
+    renderHistorico(_historico.filter(j => !isGeralJob(j)));
 
     // Abas por tipo certidão
     ["fgts","trabalhista","estadual_mt"].forEach(tipo => {
@@ -837,12 +722,6 @@ async function atualizarStatus() {
       renderTipoFila(tipo, (d.fila||[]).filter(j => isGeralJob(j) && j.modo === tipo));
       renderTipoHistorico(tipo, _historico);
     });
-
-    // Aba MEI
-    const jobMei = d.job_atual && isMeiJob(d.job_atual) ? d.job_atual : null;
-    renderMeiAtual(jobMei);
-    renderMeiFila((d.fila||[]).filter(j => isMeiJob(j)));
-    renderMeiHistorico(_historico);
   } catch(e) {}
 }
 
@@ -859,7 +738,7 @@ function trocarTab(id, btn) {
   document.getElementById("tab-" + id).classList.add("ativo");
   btn.classList.add("ativo");
   if (id === "emp") carregarEmpresas();
-  if (["fgts","trabalhista","estadual-mt","mei"].includes(id)) atualizarStatus();
+  if (["fgts","trabalhista","estadual-mt"].includes(id)) atualizarStatus();
 }
 
 // ── verificação de cidade ─────────────────────────────────────────────────────
