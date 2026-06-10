@@ -1,3 +1,4 @@
+import os as _os
 from pathlib import Path
 from datetime import datetime
 
@@ -14,7 +15,9 @@ BROWSER_PROFILE_DIR = BASE_DIR / "browser_profile"  # acumula confiança no hCap
 ANTICAPTCHA_API_KEY = "0b3f1fe79c286e30486d7739165822d2"
 
 # --- Configurações do navegador ---
-HEADLESS        = False   # False = Chrome visível (necessário para captcha do PGMEI)
+# Railway não tem display; usa headless automático. Localmente permanece headful (melhor pro captcha).
+_on_railway = bool(_os.environ.get("RAILWAY_ENVIRONMENT") or _os.environ.get("RAILWAY_PROJECT_ID"))
+HEADLESS        = _on_railway or _os.environ.get("MEI_HEADLESS", "0") == "1"
 TIMEOUT_MS      = 40_000  # 40 segundos por ação
 MAX_RETRIES     = 3       # tentativas por CNPJ
 DELAY_CNPJS     = 3       # segundos de pausa entre CNPJs
