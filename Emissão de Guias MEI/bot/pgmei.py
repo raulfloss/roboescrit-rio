@@ -239,22 +239,40 @@ class PGMEIBot:
         Retorna True se o token foi injetado com sucesso.
         """
         try:
-            sitekey = await page.evaluate("""() => {
-                const el = document.querySelector('.h-captcha[data-sitekey], [data-hcaptcha-sitekey]');
-                if (el) return el.getAttribute('data-sitekey') || el.getAttribute('data-hcaptcha-sitekey');
+            # Aguarda o widget hCaptcha carregar (iframe demora alguns segundos)
+            try:
+                await page.wait_for_selector(
+                    '.h-captcha iframe, iframe[src*="hcaptcha.com"]',
+                    state="attached", timeout=8_000,
+                )
+            except Exception:
+                pass
+
+            info_pg = await page.evaluate("""() => {
+                const el = document.querySelector('.h-captcha[data-sitekey], [data-hcaptcha-sitekey], [data-sitekey]');
                 const iframe = document.querySelector('iframe[src*="hcaptcha.com"]');
-                if (iframe) {
-                    const m = iframe.src.match(/sitekey=([^&]+)/);
-                    return m ? decodeURIComponent(m[1]) : null;
+                const iframeSrc = iframe ? iframe.src : null;
+                let sitekeyFromIframe = null;
+                if (iframeSrc) {
+                    const m = iframeSrc.match(/sitekey=([^&]+)/);
+                    sitekeyFromIframe = m ? decodeURIComponent(m[1]) : null;
                 }
-                return null;
+                return {
+                    sitekey:  el ? (el.getAttribute('data-sitekey') || el.getAttribute('data-hcaptcha-sitekey')) : sitekeyFromIframe,
+                    callback: el ? el.getAttribute('data-callback') : null,
+                    iframeSrc: iframeSrc ? iframeSrc.substring(0, 80) : null,
+                };
             }""")
+
+            sitekey = info_pg.get("sitekey")
+            cb_name  = info_pg.get("callback")
+            logger.info(f"  → hCaptcha scan: sitekey={bool(sitekey)} | callback={cb_name!r} | iframe={bool(info_pg.get('iframeSrc'))}")
 
             if not sitekey:
                 logger.debug("  → hCaptcha não detectado na página")
                 return False
 
-            logger.info(f"  → hCaptcha detectado (sitekey: {sitekey[:20]}...). Enviando ao Anti-Captcha...")
+            logger.info(f"  → hCaptcha sitekey: {sitekey[:20]}... Enviando ao Anti-Captcha...")
 
             from anticaptchaofficial.hcaptchaproxyless import hCaptchaProxyless
             solver = hCaptchaProxyless()
@@ -272,17 +290,44 @@ class PGMEIBot:
                 return False
 
             logger.info("  → Token hCaptcha recebido. Injetando...")
-            await page.evaluate("""(t) => {
+
+            inj = await page.evaluate("""(args) => {
+                const [t, cbName] = args;
+                const res = { ta: false, cbCalled: false, hcExecute: false };
+
+                // 1. Seta o textarea oculto (form POST padrão)
                 const ta = document.querySelector('textarea[name="h-captcha-response"]');
                 if (ta) {
                     Object.getOwnPropertyDescriptor(
                         window.HTMLTextAreaElement.prototype, 'value'
                     ).set.call(ta, t);
-                    ta.dispatchEvent(new Event('input', { bubbles: true }));
-                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                    ['input', 'change', 'blur'].forEach(ev =>
+                        ta.dispatchEvent(new Event(ev, { bubbles: true }))
+                    );
+                    res.ta = true;
                 }
-            }""", token)
-            await asyncio.sleep(0.5)
+
+                // 2. Chama o callback data-callback que o Angular/PGMEI registrou
+                if (cbName && typeof window[cbName] === 'function') {
+                    window[cbName](t);
+                    res.cbCalled = true;
+                }
+
+                // 3. Tenta a API global do hcaptcha (modo invisible)
+                if (window.hcaptcha) {
+                    try { window.hcaptcha.execute(); res.hcExecute = true; } catch(e) {}
+                }
+
+                return res;
+            }""", [token, cb_name])
+
+            logger.info(
+                f"  → Injeção: textarea={'sim' if inj.get('ta') else 'NAO'}"
+                f" | callback={'sim' if inj.get('cbCalled') else 'NAO'}"
+                f" | hcExecute={'sim' if inj.get('hcExecute') else 'NAO'}"
+            )
+
+            await asyncio.sleep(1.5)  # Angular precisa processar o token
             return True
 
         except Exception as e:
@@ -384,6 +429,7 @@ class PGMEIBot:
         # Em headless (Railway): injeta token hCaptcha ANTES de submeter
         if HEADLESS and ANTICAPTCHA_API_KEY:
             await self._injetar_token_hcaptcha(page)
+            await asyncio.sleep(2)  # Angular precisa processar antes do submit
 
         # Clica Continuar para disparar o hCaptcha
         clicou = await self._clicar_primeiro_visivel(page, [
