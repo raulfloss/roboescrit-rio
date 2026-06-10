@@ -95,20 +95,27 @@ class PGMEIBot:
         """
         # No Linux sem display (Railway), inicia Xvfb para rodar Chrome headful
         if sys.platform != "win32" and not HEADLESS:
+            import os as _os
+            logger.info(f"Linux detectado | DISPLAY={_os.environ.get('DISPLAY','n/d')}")
             try:
                 from pyvirtualdisplay import Display
                 if self._display is None:
                     self._display = Display(visible=0, size=(1280, 900))
                     self._display.start()
-                    logger.info("Xvfb iniciado para Chrome headful no Linux.")
+                    logger.info(f"Xvfb OK | DISPLAY={_os.environ.get('DISPLAY','?')}")
             except Exception as e:
-                logger.warning(f"pyvirtualdisplay indisponível: {e}")
+                logger.warning(f"pyvirtualdisplay falhou: {e} — Chrome pode não abrir")
 
-        BROWSER_PROFILE_DIR.mkdir(exist_ok=True)
+        BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         logger.info(f"Perfil do browser: {BROWSER_PROFILE_DIR}")
 
         # --start-minimized só tem efeito no Windows
-        extra_args = ["--start-minimized"] if sys.platform == "win32" else []
+        # --no-sandbox e --disable-dev-shm-usage são necessários em containers Linux (Railway)
+        extra_args = ["--start-minimized"] if sys.platform == "win32" else [
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ]
 
         launch_kwargs = dict(
             headless=HEADLESS,
@@ -740,7 +747,11 @@ class PGMEIBot:
         total      = len(clientes)
 
         async with async_playwright() as pw:
-            await self._iniciar(pw)
+            try:
+                await self._iniciar(pw)
+            except Exception as e:
+                logger.error(f"FALHA AO INICIAR BROWSER: {e}")
+                raise
             # Uma única aba reutilizada para todos os CNPJs — Chrome fica minimizado
             page = await self._context.new_page()
             await _stealth.apply_stealth_async(page)
