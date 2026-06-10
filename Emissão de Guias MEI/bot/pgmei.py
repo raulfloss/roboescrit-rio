@@ -26,6 +26,7 @@ _stealth = Stealth(
 )
 
 from config import (
+    ANTICAPTCHA_API_KEY,
     BROWSER_PROFILE_DIR,
     DELAY_CNPJS,
     DOWNLOADS_DIR,
@@ -231,6 +232,63 @@ class PGMEIBot:
             logger.warning(f"  → CDP PDF falhou: {e}")
             return False
 
+    async def _injetar_token_hcaptcha(self, page: Page) -> bool:
+        """
+        Detecta hCaptcha na página, obtém token via Anti-Captcha API e injeta no formulário.
+        Necessário em modo headless (Railway) onde não há interação manual possível.
+        Retorna True se o token foi injetado com sucesso.
+        """
+        try:
+            sitekey = await page.evaluate("""() => {
+                const el = document.querySelector('.h-captcha[data-sitekey], [data-hcaptcha-sitekey]');
+                if (el) return el.getAttribute('data-sitekey') || el.getAttribute('data-hcaptcha-sitekey');
+                const iframe = document.querySelector('iframe[src*="hcaptcha.com"]');
+                if (iframe) {
+                    const m = iframe.src.match(/sitekey=([^&]+)/);
+                    return m ? decodeURIComponent(m[1]) : null;
+                }
+                return null;
+            }""")
+
+            if not sitekey:
+                logger.debug("  → hCaptcha não detectado na página")
+                return False
+
+            logger.info(f"  → hCaptcha detectado (sitekey: {sitekey[:20]}...). Enviando ao Anti-Captcha...")
+
+            from anticaptchaofficial.hcaptchaproxyless import hCaptchaProxyless
+            solver = hCaptchaProxyless()
+            solver.set_verbose(0)
+            solver.set_key(ANTICAPTCHA_API_KEY)
+            solver.set_website_url(page.url)
+            solver.set_website_key(sitekey)
+
+            # solve_and_return_solution é bloqueante — roda em thread para não travar o event loop
+            loop = asyncio.get_event_loop()
+            token = await loop.run_in_executor(None, solver.solve_and_return_solution)
+
+            if not token or token == 0:
+                logger.warning(f"  → Anti-Captcha falhou: {solver.error_code}")
+                return False
+
+            logger.info("  → Token hCaptcha recebido. Injetando...")
+            await page.evaluate("""(t) => {
+                const ta = document.querySelector('textarea[name="h-captcha-response"]');
+                if (ta) {
+                    Object.getOwnPropertyDescriptor(
+                        window.HTMLTextAreaElement.prototype, 'value'
+                    ).set.call(ta, t);
+                    ta.dispatchEvent(new Event('input', { bubbles: true }));
+                    ta.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }""", token)
+            await asyncio.sleep(0.5)
+            return True
+
+        except Exception as e:
+            logger.warning(f"  → Erro ao resolver hCaptcha: {e}")
+            return False
+
     # ------------------------------------------------------------------
     # Passos do fluxo
     # ------------------------------------------------------------------
@@ -323,6 +381,10 @@ class PGMEIBot:
 
         logger.info(f"  → Campo preenchido: {await campo.input_value()}")
 
+        # Em headless (Railway): injeta token hCaptcha ANTES de submeter
+        if HEADLESS and ANTICAPTCHA_API_KEY:
+            await self._injetar_token_hcaptcha(page)
+
         # Clica Continuar para disparar o hCaptcha
         clicou = await self._clicar_primeiro_visivel(page, [
             'button:has-text("Continuar")',
@@ -332,7 +394,7 @@ class PGMEIBot:
         if not clicou:
             await campo.press("Enter")
 
-        # Aguarda 2s para ver se o captcha bloqueou ou redirecionou
+        # Aguarda para ver se o captcha bloqueou ou redirecionou
         await asyncio.sleep(2.5)
 
         try:
@@ -343,24 +405,68 @@ class PGMEIBot:
         bloqueado = "Comportamento de Rob" in conteudo or "Impedido" in conteudo
 
         if bloqueado or "Inicio" not in page.url:
-            # Captcha bloqueou — pede resolução manual UMA VEZ no navegador aberto
             cnpj_fmt = self._formatar_cnpj(cnpj)
-            logger.warning("")
-            logger.warning("=" * 60)
-            logger.warning("  CAPTCHA MANUAL NECESSÁRIO")
-            logger.warning(f"  CNPJ: {cnpj_fmt}")
-            logger.warning("  No navegador aberto:")
-            if bloqueado:
-                logger.warning("    1. Feche o alerta vermelho (X)")
-                logger.warning(f"   2. Digite o CNPJ: {cnpj_fmt}")
-                logger.warning("    3. Clique em Continuar")
+
+            if HEADLESS:
+                # Headless (Railway): tenta recuperar automaticamente
+                logger.warning(f"  → Captcha/bloqueio detectado (headless). Tentando recuperar...")
+                if bloqueado:
+                    # Fecha alerta e tenta de novo com token
+                    try:
+                        await page.click('button.close, [aria-label="Close"], .btn-danger, button:has-text("×")', timeout=3000)
+                        await asyncio.sleep(0.5)
+                    except Exception:
+                        pass
+                    await page.goto(PGMEI_URL, wait_until="domcontentloaded")
+                    try:
+                        await page.wait_for_selector("input", state="visible", timeout=10_000)
+                    except Exception:
+                        await asyncio.sleep(3)
+                    # Preenche CNPJ novamente
+                    for sel in ['input[type="tel"]', 'input[maxlength="18"]', 'input[maxlength="14"]', 'input']:
+                        try:
+                            el = page.locator(sel).first
+                            if await el.is_visible():
+                                await el.click()
+                                await page.keyboard.press("Control+a")
+                                await page.keyboard.press("Delete")
+                                await el.press_sequentially(cnpj, delay=80)
+                                break
+                        except Exception:
+                            continue
+                    if ANTICAPTCHA_API_KEY:
+                        await self._injetar_token_hcaptcha(page)
+                    await self._clicar_primeiro_visivel(page, [
+                        'button:has-text("Continuar")', 'button[type="submit"]',
+                    ])
+                    await asyncio.sleep(2.5)
+
+                # Aguarda redirect com timeout razoável (60s)
+                try:
+                    await page.wait_for_url("**/Home/Inicio**", timeout=60_000)
+                except Exception:
+                    raise RuntimeError(
+                        f"hCaptcha não resolvido automaticamente para CNPJ {cnpj_fmt}. "
+                        "Verifique o ANTICAPTCHA_API_KEY no config.py ou rode localmente."
+                    )
             else:
-                logger.warning("    → Clique em Continuar e resolva o captcha")
-            logger.warning("  O bot assume automaticamente após você passar.")
-            logger.warning("  Aguardando (5 minutos)...")
-            logger.warning("=" * 60)
-            logger.warning("")
-            await page.wait_for_url("**/Home/Inicio**", timeout=300_000)
+                # Headful (local): pede resolução manual
+                logger.warning("")
+                logger.warning("=" * 60)
+                logger.warning("  CAPTCHA MANUAL NECESSÁRIO")
+                logger.warning(f"  CNPJ: {cnpj_fmt}")
+                logger.warning("  No navegador aberto:")
+                if bloqueado:
+                    logger.warning("    1. Feche o alerta vermelho (X)")
+                    logger.warning(f"   2. Digite o CNPJ: {cnpj_fmt}")
+                    logger.warning("    3. Clique em Continuar")
+                else:
+                    logger.warning("    → Clique em Continuar e resolva o captcha")
+                logger.warning("  O bot assume automaticamente após você passar.")
+                logger.warning("  Aguardando (5 minutos)...")
+                logger.warning("=" * 60)
+                logger.warning("")
+                await page.wait_for_url("**/Home/Inicio**", timeout=300_000)
 
         logger.info("  → Em /Home/Inicio.")
 
