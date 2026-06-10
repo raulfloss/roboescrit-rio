@@ -147,10 +147,12 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
   <div>
     <h1>Robô de Certidões Negativas<small>escritório</small></h1>
   </div>
-  <div style="margin-left:auto;display:flex;align-items:center;gap:10px">
-    <div id="hd-usuario" style="font-size:.85rem;opacity:.8"></div>
-    <button onclick="trocarTab('emp',this)" style="padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border:none;border-radius:8px;font-size:.8rem;cursor:pointer;white-space:nowrap">🏢 Empresas</button>
-    <a href="/logout" style="padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border-radius:8px;font-size:.8rem;text-decoration:none;white-space:nowrap">Sair</a>
+  <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div id="hd-usuario" style="font-size:.85rem;opacity:.8"></div>
+      <a href="/logout" style="padding:6px 14px;background:rgba(255,255,255,.12);color:#fff;border-radius:8px;font-size:.8rem;text-decoration:none;white-space:nowrap">Sair</a>
+    </div>
+    <button onclick="trocarTab('emp',this)" style="padding:5px 14px;background:rgba(255,255,255,.1);color:#fff;border:none;border-radius:8px;font-size:.78rem;cursor:pointer;white-space:nowrap">🏢 Empresas</button>
   </div>
 </header>
 
