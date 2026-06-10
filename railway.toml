@@ -1,5 +1,5 @@
 [build]
-buildCommand = "apt-get update -qq && apt-get install -y xvfb && pip install -r requirements.txt && playwright install --with-deps chromium"
+buildCommand = "pip install -r requirements.txt && playwright install --with-deps chromium"
 
 [deploy]
-startCommand = "bash start.sh"
+startCommand = "python server.py"
