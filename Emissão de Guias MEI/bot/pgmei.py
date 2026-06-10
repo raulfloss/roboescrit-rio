@@ -780,8 +780,10 @@ class PGMEIBot:
 
                     resultados.append(resultado)
 
-                    icone = "✓" if resultado["Status"] == "SUCESSO" else "✗"
-                    logger.info(f"  {icone} {resultado['Status']} — {resultado['Observação'] or resultado['Arquivo']}")
+                    status = resultado["Status"]
+                    icone = "OK" if status == "SUCESSO" else "FALHOU"
+                    detalhe = resultado["Observação"] or resultado["Arquivo"] or ""
+                    logger.info(f"  [{icone}] {status} | {detalhe[:100]}")
 
                     if i < total:
                         await asyncio.sleep(DELAY_CNPJS)

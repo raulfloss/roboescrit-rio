@@ -59,7 +59,8 @@ async def main():
     cnpj_alvo       = sys.argv[1].strip() if len(sys.argv) > 1 else None
     cnpj_alvo_limpo = None
 
-    if not cnpj_alvo and sys.stdin.isatty():
+    # Só exibe prompt se stdout também for um terminal (não um pipe do servidor web)
+    if not cnpj_alvo and sys.stdin.isatty() and sys.stdout.isatty():
         try:
             resposta = input(
                 "\nDigite o CNPJ para processar apenas 1 cliente "
@@ -68,7 +69,7 @@ async def main():
             if resposta:
                 cnpj_alvo = resposta
         except EOFError:
-            pass  # stdin é NUL/DEVNULL (subprocesso) — processa todos
+            pass
 
     if cnpj_alvo:
         cnpj_alvo_limpo = "".join(d for d in cnpj_alvo if d.isdigit())

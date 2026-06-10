@@ -150,7 +150,7 @@ def _rodar_job(job):
         proc = subprocess.Popen(
             args,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL if is_mei else subprocess.STDOUT,
+            stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             text=True, encoding="utf-8", errors="replace",
             env=env, cwd=run_dir,
@@ -194,13 +194,13 @@ def _rodar_job(job):
                         cnpj_atual = linha.split("CNPJ:")[-1].strip().split()[0]
                     except Exception:
                         pass
-                # Linhas de resultado têm formato: "| INFO | [✓/✗] STATUS — detalhes"
-                if "| INFO" in linha and "SUCESSO" in linha and "—" in linha:
+                # Linha de resultado: "| INFO     |   [OK] SUCESSO | ..." ou "[FALHOU] ERRO | ..."
+                if "| INFO" in linha and "[OK] SUCESSO" in linha:
                     job["sucesso"] = job.get("sucesso", 0) + 1
-                if "| INFO" in linha and "ERRO" in linha and "—" in linha:
+                if "| INFO" in linha and "[FALHOU]" in linha:
                     job["erros"] = job.get("erros", 0) + 1
-                    partes = linha.split("—", 1)
-                    motivo = partes[1].strip()[:120] if len(partes) > 1 else linha.split("|")[-1].strip()[:120]
+                    partes = linha.split("|", 4)
+                    motivo = partes[-1].strip()[:120] if len(partes) >= 4 else linha.split("|")[-1].strip()[:120]
                     if cnpj_atual:
                         erros_detalhe.append({"cnpj": cnpj_atual, "motivo": motivo})
             else:
