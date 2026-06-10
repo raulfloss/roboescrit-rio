@@ -172,45 +172,45 @@ def _rodar_job(job):
             _logs[jid].append(linha)
 
             # Rastreia CNPJ atual: "[1/141] CNPJ: 12345678000195 | ..."
-                if linha.startswith("[") and "CNPJ:" in linha:
-                    try:
-                        cnpj_atual = linha.split("CNPJ:")[1].split("|")[0].strip()
-                    except Exception:
-                        pass
+            if linha.startswith("[") and "CNPJ:" in linha:
+                try:
+                    cnpj_atual = linha.split("CNPJ:")[1].split("|")[0].strip()
+                except Exception:
+                    pass
 
-                if "--- Processamento finalizado ---" in linha:
-                    em_relatorio = True
-                if em_relatorio:
-                    relatorio_linhas.append(linha)
+            if "--- Processamento finalizado ---" in linha:
+                em_relatorio = True
+            if em_relatorio:
+                relatorio_linhas.append(linha)
 
-                if "CNPJs selecionados" in linha:
-                    try:
-                        job["total"] = int(linha.split("|")[1].strip().split()[0])
-                    except Exception:
-                        pass
-                if ("Certidão" in linha or "Certidao" in linha) and "salva:" in linha:
-                    job["sucesso"] = job.get("sucesso", 0) + 1
-                if "TIMEOUT:" in linha:
-                    job["erros"] = job.get("erros", 0) + 1
-                    if cnpj_atual:
-                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Timeout — portal demorou demais"})
-                elif "ERRO:" in linha:
-                    job["erros"] = job.get("erros", 0) + 1
-                    motivo = linha.split("ERRO:", 1)[-1].strip()[:120]
-                    if cnpj_atual:
-                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": f"Erro: {motivo}"})
-                elif "não encontrado na base" in linha.lower() or "nao encontrado" in linha.lower():
-                    if cnpj_atual:
-                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ não encontrado no portal"})
-                elif "com débitos" in linha.lower() or "com debitos" in linha.lower():
-                    if cnpj_atual:
-                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ com débitos"})
-                elif "sem portal" in linha.lower() or "não suportado" in linha.lower() or "nao suportado" in linha.lower():
-                    if cnpj_atual:
-                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Cidade sem portal cadastrado"})
-                elif "captcha falhou" in linha.lower():
-                    if cnpj_atual:
-                        erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Captcha não resolvido"})
+            if "CNPJs selecionados" in linha:
+                try:
+                    job["total"] = int(linha.split("|")[1].strip().split()[0])
+                except Exception:
+                    pass
+            if ("Certidão" in linha or "Certidao" in linha) and "salva:" in linha:
+                job["sucesso"] = job.get("sucesso", 0) + 1
+            if "TIMEOUT:" in linha:
+                job["erros"] = job.get("erros", 0) + 1
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Timeout — portal demorou demais"})
+            elif "ERRO:" in linha:
+                job["erros"] = job.get("erros", 0) + 1
+                motivo = linha.split("ERRO:", 1)[-1].strip()[:120]
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": f"Erro: {motivo}"})
+            elif "não encontrado na base" in linha.lower() or "nao encontrado" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ não encontrado no portal"})
+            elif "com débitos" in linha.lower() or "com debitos" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "CNPJ com débitos"})
+            elif "sem portal" in linha.lower() or "não suportado" in linha.lower() or "nao suportado" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Cidade sem portal cadastrado"})
+            elif "captcha falhou" in linha.lower():
+                if cnpj_atual:
+                    erros_detalhe.append({"cnpj": cnpj_atual, "motivo": "Captcha não resolvido"})
 
         proc.wait()
         if job["status"] != "cancelado":
