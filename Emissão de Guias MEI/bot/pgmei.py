@@ -94,18 +94,23 @@ class PGMEIBot:
         no hCaptcha entre sessões. Cada execução deixa cookies/histórico que
         fazem o hCaptcha pontuar o navegador como humano nas próximas vezes.
         """
-        # No Linux sem display (Railway), inicia Xvfb para rodar Chrome headful
+        # No Linux sem display, inicia Xvfb para rodar Chrome headful.
+        # No Railway o DISPLAY já está definido pelo startCommand (Xvfb :99), então pula.
         if sys.platform != "win32" and not HEADLESS:
             import os as _os
-            logger.info(f"Linux detectado | DISPLAY={_os.environ.get('DISPLAY','n/d')}")
-            try:
-                from pyvirtualdisplay import Display
-                if self._display is None:
-                    self._display = Display(visible=0, size=(1280, 900))
-                    self._display.start()
-                    logger.info(f"Xvfb OK | DISPLAY={_os.environ.get('DISPLAY','?')}")
-            except Exception as e:
-                logger.warning(f"pyvirtualdisplay falhou: {e} — Chrome pode não abrir")
+            display_atual = _os.environ.get("DISPLAY", "")
+            logger.info(f"Linux detectado | DISPLAY={display_atual or 'n/d'}")
+            if not display_atual:
+                try:
+                    from pyvirtualdisplay import Display
+                    if self._display is None:
+                        self._display = Display(visible=0, size=(1280, 900))
+                        self._display.start()
+                        logger.info(f"Xvfb (pyvirtualdisplay) OK | DISPLAY={_os.environ.get('DISPLAY','?')}")
+                except Exception as e:
+                    logger.warning(f"pyvirtualdisplay falhou: {e} — Chrome pode não abrir")
+            else:
+                logger.info(f"Usando DISPLAY existente: {display_atual}")
 
         BROWSER_PROFILE_DIR.mkdir(parents=True, exist_ok=True)
         logger.info(f"Perfil do browser: {BROWSER_PROFILE_DIR}")
@@ -426,8 +431,8 @@ class PGMEIBot:
 
         logger.info(f"  → Campo preenchido: {await campo.input_value()}")
 
-        # Em headless (Railway): injeta token hCaptcha ANTES de submeter
-        if HEADLESS and ANTICAPTCHA_API_KEY:
+        # Injeta token hCaptcha ANTES de submeter (headless e headful)
+        if ANTICAPTCHA_API_KEY:
             await self._injetar_token_hcaptcha(page)
             await asyncio.sleep(2)  # Angular precisa processar antes do submit
 
@@ -453,22 +458,20 @@ class PGMEIBot:
         if bloqueado or "Inicio" not in page.url:
             cnpj_fmt = self._formatar_cnpj(cnpj)
 
-            if HEADLESS:
-                # Headless (Railway): tenta recuperar automaticamente
-                logger.warning(f"  → Captcha/bloqueio detectado (headless). Tentando recuperar...")
+            if ANTICAPTCHA_API_KEY:
+                # Tenta recuperar via Anti-Captcha (headless + headful com Xvfb)
+                logger.warning(f"  → Captcha detectado. Tentando Anti-Captcha...")
                 if bloqueado:
-                    # Fecha alerta e tenta de novo com token
                     try:
                         await page.click('button.close, [aria-label="Close"], .btn-danger, button:has-text("×")', timeout=3000)
-                        await asyncio.sleep(0.5)
                     except Exception:
                         pass
+                    await asyncio.sleep(0.5)
                     await page.goto(PGMEI_URL, wait_until="domcontentloaded")
                     try:
                         await page.wait_for_selector("input", state="visible", timeout=10_000)
                     except Exception:
                         await asyncio.sleep(3)
-                    # Preenche CNPJ novamente
                     for sel in ['input[type="tel"]', 'input[maxlength="18"]', 'input[maxlength="14"]', 'input']:
                         try:
                             el = page.locator(sel).first
@@ -480,23 +483,30 @@ class PGMEIBot:
                                 break
                         except Exception:
                             continue
-                    if ANTICAPTCHA_API_KEY:
-                        await self._injetar_token_hcaptcha(page)
+                    await self._injetar_token_hcaptcha(page)
+                    await asyncio.sleep(2)
                     await self._clicar_primeiro_visivel(page, [
                         'button:has-text("Continuar")', 'button[type="submit"]',
                     ])
                     await asyncio.sleep(2.5)
 
-                # Aguarda redirect com timeout razoável (60s)
                 try:
                     await page.wait_for_url("**/Home/Inicio**", timeout=60_000)
                 except Exception:
-                    raise RuntimeError(
-                        f"hCaptcha não resolvido automaticamente para CNPJ {cnpj_fmt}. "
-                        "Verifique o ANTICAPTCHA_API_KEY no config.py ou rode localmente."
-                    )
+                    if HEADLESS:
+                        raise RuntimeError(
+                            f"Captcha não resolvido para CNPJ {cnpj_fmt}. "
+                            "Verifique ANTICAPTCHA_API_KEY ou rode localmente."
+                        )
+                    # Headful (local + Xvfb): último recurso — aguarda resolução manual
+                    logger.warning("  → Anti-Captcha falhou. Aguardando resolução manual...")
+                    logger.warning(f"  CNPJ: {cnpj_fmt} — resolva o captcha no navegador.")
+                    logger.warning("  Aguardando (5 minutos)...")
+                    await page.wait_for_url("**/Home/Inicio**", timeout=300_000)
             else:
-                # Headful (local): pede resolução manual
+                # Sem API key configurada
+                if HEADLESS:
+                    raise RuntimeError(f"Captcha detectado (sem ANTICAPTCHA_API_KEY) para CNPJ {cnpj_fmt}.")
                 logger.warning("")
                 logger.warning("=" * 60)
                 logger.warning("  CAPTCHA MANUAL NECESSÁRIO")
