@@ -157,7 +157,6 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
   <button class="tab-btn ativo" onclick="trocarTab('proc',this)">🏙️ Municipais</button>
   <button class="tab-btn" onclick="trocarTab('fgts',this)">💼 FGTS</button>
   <button class="tab-btn" onclick="trocarTab('trabalhista',this)">⚖️ Trabalhista</button>
-  <button class="tab-btn" onclick="trocarTab('estadual-mt',this)">🗺️ Estadual MT</button>
   <button class="tab-btn" onclick="trocarTab('emp',this)" style="margin-left:auto">🏢 Empresas</button>
 </nav>
 
@@ -371,39 +370,6 @@ mark{background:#fef3c7;border-radius:2px;padding:0 1px}
 </div>
 </div><!-- /tab-trabalhista -->
 
-<!-- ══ Tab: Estadual MT ══════════════════════════════════════════════════════ -->
-<div id="tab-estadual-mt" class="tab-panel">
-<div class="wrap">
-  <div>
-    <div class="card" style="margin-bottom:18px">
-      <div class="card-title">Estadual MT</div>
-      <div class="tipo-info" style="border-left:4px solid #d97706">
-        <strong>Certidão de Débitos Estaduais — Mato Grosso</strong>
-        <span>SEFAZ-MT</span>
-        <span class="tipo-aplica">CNPJ (empresas) + CPF (produtores rurais)</span>
-      </div>
-      <button class="btn-start" id="btn-iniciar-estadual-mt" onclick="iniciarTipo('estadual_mt')" style="margin-top:14px">
-        ▶ Iniciar Estadual MT
-      </button>
-    </div>
-    <div class="card">
-      <div class="card-title">Fila de Espera</div>
-      <div id="painel-estadual-mt-fila"><div class="empty">Nenhum job aguardando</div></div>
-    </div>
-  </div>
-  <div class="right-col">
-    <div class="card">
-      <div class="card-title">Em Andamento</div>
-      <div id="painel-estadual-mt-atual"><div class="empty">Nenhum processamento em execução</div></div>
-    </div>
-    <div class="card">
-      <div class="card-title">Histórico</div>
-      <div id="painel-estadual-mt-hist"><div class="empty">Nenhum job concluído ainda</div></div>
-    </div>
-  </div>
-</div>
-</div><!-- /tab-estadual-mt -->
-
 <script>
 // ── nome salvo ────────────────────────────────────────────────────────────────
 const $nome = document.getElementById("inp-nome");
@@ -595,12 +561,11 @@ function isGeralJob(j) { return j && j.script === "robo_geral.py"; }
 const TIPO_LABEL = {
   fgts:        "FGTS (CRF)",
   trabalhista: "Trabalhista (CNDT)",
-  estadual_mt: "Estadual MT",
 };
 
 // Estado de log independente por tipo
 const _logState = {};
-["fgts","trabalhista","estadual_mt"].forEach(t => {
+["fgts","trabalhista"].forEach(t => {
   _logState[t] = { offset: 0, jobId: null, timer: null };
 });
 
@@ -717,7 +682,7 @@ async function atualizarStatus() {
     renderHistorico(_historico.filter(j => !isGeralJob(j)));
 
     // Abas por tipo certidão
-    ["fgts","trabalhista","estadual_mt"].forEach(tipo => {
+    ["fgts","trabalhista"].forEach(tipo => {
       const jobT = d.job_atual && isGeralJob(d.job_atual) && d.job_atual.modo === tipo
                    ? d.job_atual : null;
       renderTipoAtual(tipo, jobT);
@@ -740,7 +705,7 @@ function trocarTab(id, btn) {
   document.getElementById("tab-" + id).classList.add("ativo");
   btn.classList.add("ativo");
   if (id === "emp") carregarEmpresas();
-  if (["fgts","trabalhista","estadual-mt"].includes(id)) atualizarStatus();
+  if (["fgts","trabalhista"].includes(id)) atualizarStatus();
 }
 
 // ── verificação de cidade ─────────────────────────────────────────────────────

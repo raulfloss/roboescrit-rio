@@ -70,6 +70,7 @@ RF_TS_COOKIE     = os.environ.get("RF_TS_COOKIE", "")  # ex: TS3750c27d027=abc12
 
 NOMES_TIPO = {
     "federal":     "Federal (CND)",
+    
     "fgts":        "FGTS (CRF)",
     "trabalhista": "Trabalhista (CNDT)",
     "estadual_mt": "Estadual MT (SEFAZ)",
@@ -756,65 +757,63 @@ def baixar_trabalhista(page, context, doc, caminho):
 # ── Clique real de OS (isTrusted=true, cursor restaurado) ─────────────────────
 
 def _clicar_os(page, seletor):
-    """SendInput com save/restore de cursor — mouse volta ao lugar após o clique."""
+    """Clica no elemento via CDP do Playwright (sem mover cursor do OS).
+    Fallback para SendInput caso a página rejeite o clique CDP."""
     btn = page.locator(seletor).first
     box = btn.bounding_box()
     if not box:
         return False
-    pos = page.evaluate("""() => {
-        const bh = window.outerHeight - window.innerHeight;
-        return { sx: window.screenX, sy: window.screenY + bh };
-    }""")
-    sx = int(pos["sx"] + box["x"] + box["width"]  / 2)
-    sy = int(pos["sy"] + box["y"] + box["height"] / 2)
+    cx = box["x"] + box["width"]  / 2
+    cy = box["y"] + box["height"] / 2
 
-    if os.name == "nt":
-        try:
-            import ctypes
-            PUL = ctypes.POINTER(ctypes.c_ulong)
-            class MouseInput(ctypes.Structure):
-                _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
-                             ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
-                             ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
-            class Input(ctypes.Structure):
-                class _I(ctypes.Union):
-                    _fields_ = [("mi", MouseInput)]
-                _anonymous_ = ("_i",)
-                _fields_  = [("type", ctypes.c_ulong), ("_i", _I)]
-
-            sw = ctypes.windll.user32.GetSystemMetrics(0)
-            sh = ctypes.windll.user32.GetSystemMetrics(1)
-
-            class POINT(ctypes.Structure):
-                _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
-            orig = POINT()
-            ctypes.windll.user32.GetCursorPos(ctypes.byref(orig))
-
-            def _send(flags, dx, dy):
-                i = Input()
-                i.type = 0
-                i.mi.dx, i.mi.dy = int(dx * 65535 / sw), int(dy * 65535 / sh)
-                i.mi.dwFlags = flags
-                ctypes.windll.user32.SendInput(1, ctypes.byref(i), ctypes.sizeof(i))
-
-            _send(0x0001 | 0x8000, sx, sy)   # mover
-            time.sleep(0.12)
-            _send(0x0002 | 0x8000, sx, sy)   # down
-            time.sleep(0.05)
-            _send(0x0004 | 0x8000, sx, sy)   # up
-            time.sleep(0.05)
-            _send(0x0001 | 0x8000, orig.x, orig.y)  # restaura cursor
-            print(f"  SendInput click ({sx},{sy}) → cursor restaurado")
-            return True
-        except Exception as e:
-            print(f"  SendInput falhou: {e}")
-
+    # SendInput: único método que produz isTrusted=true no SEFAZ-MT
+    if os.name != "nt":
+        return False
     try:
-        import pyautogui
-        pyautogui.click(sx, sy)
+        pos = page.evaluate("""() => {
+            const bh = window.outerHeight - window.innerHeight;
+            return { sx: window.screenX, sy: window.screenY + bh };
+        }""")
+        sx = int(pos["sx"] + cx)
+        sy = int(pos["sy"] + cy)
+
+        import ctypes
+        PUL = ctypes.POINTER(ctypes.c_ulong)
+        class MouseInput(ctypes.Structure):
+            _fields_ = [("dx", ctypes.c_long), ("dy", ctypes.c_long),
+                         ("mouseData", ctypes.c_ulong), ("dwFlags", ctypes.c_ulong),
+                         ("time", ctypes.c_ulong), ("dwExtraInfo", PUL)]
+        class Input(ctypes.Structure):
+            class _I(ctypes.Union):
+                _fields_ = [("mi", MouseInput)]
+            _anonymous_ = ("_i",)
+            _fields_  = [("type", ctypes.c_ulong), ("_i", _I)]
+
+        sw = ctypes.windll.user32.GetSystemMetrics(0)
+        sh = ctypes.windll.user32.GetSystemMetrics(1)
+
+        class POINT(ctypes.Structure):
+            _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+        orig = POINT()
+        ctypes.windll.user32.GetCursorPos(ctypes.byref(orig))
+
+        def _send(flags, dx, dy):
+            i = Input()
+            i.type = 0
+            i.mi.dx, i.mi.dy = int(dx * 65535 / sw), int(dy * 65535 / sh)
+            i.mi.dwFlags = flags
+            ctypes.windll.user32.SendInput(1, ctypes.byref(i), ctypes.sizeof(i))
+
+        _send(0x0001 | 0x8000, sx, sy)
+        time.sleep(0.015)
+        _send(0x0002 | 0x8000, sx, sy)
+        time.sleep(0.008)
+        _send(0x0004 | 0x8000, sx, sy)
+        _send(0x0001 | 0x8000, orig.x, orig.y)   # restaura imediatamente após MOUSEUP
+        print(f"  SendInput click ({sx},{sy}) → cursor restaurado")
         return True
     except Exception as e:
-        print(f"  pyautogui indisponivel: {e}")
+        print(f"  SendInput falhou: {e}")
         return False
 
 # ── Fluxo: SEFAZ-MT ───────────────────────────────────────────────────────────
@@ -828,9 +827,11 @@ def baixar_sefaz_mt(page, context, doc, caminho):
             break
         except Exception as e:
             if tentativa < 2:
-                print(f"  SEFAZ-MT: conexão recusada, aguardando {(tentativa+1)*4}s...")
-                page.wait_for_timeout((tentativa + 1) * 4000)
+                espera = (tentativa + 1) * 12
+                print(f"  SEFAZ-MT: conexão recusada, aguardando {espera}s...")
+                page.wait_for_timeout(espera * 1000)
             else:
+                print("  SEFAZ-MT: servidor indisponível após 3 tentativas")
                 return "nao_encontrado"
     # Espera Cloudflare Turnstile resolver e formulário aparecer (até 40s)
     _sel_radio = 'input[type="radio"]'
@@ -900,14 +901,24 @@ def baixar_sefaz_mt(page, context, doc, caminho):
 
     sel_btn = 'input[type="submit"], button[type="submit"], input[type="button"][value*="ok" i]'
 
-    # SendInput: único método confiável para o submit do SEFAZ-MT (cursor restaurado)
+    # Tenta click CDP (sem mover cursor); se não navegar em 7s usa SendInput como fallback
+    _nav_ok = False
     try:
-        with page.expect_navigation(wait_until="domcontentloaded", timeout=20000):
-            _clicar_os(page, sel_btn)
-    except Exception as e:
-        print(f"  SEFAZ-MT: navegação não detectada ({e})")
-        context.remove_listener("download", _on_dl)
-        return "nao_encontrado"
+        with page.expect_navigation(wait_until="domcontentloaded", timeout=7000):
+            page.locator(sel_btn).first.click(timeout=3000)
+        _nav_ok = True
+        print("  SEFAZ-MT: submit via CDP (sem cursor)")
+    except Exception:
+        pass
+
+    if not _nav_ok:
+        try:
+            with page.expect_navigation(wait_until="domcontentloaded", timeout=20000):
+                _clicar_os(page, sel_btn)
+        except Exception as e:
+            print(f"  SEFAZ-MT: navegação não detectada ({e})")
+            context.remove_listener("download", _on_dl)
+            return "nao_encontrado"
 
     # Aguarda rede estabilizar
     try:
@@ -951,29 +962,105 @@ def baixar_sefaz_mt(page, context, doc, caminho):
             pass
 
     if _link_cert:
-        print(f"  SEFAZ-MT: página intermediária — clicando '{_link_cert}'")
+        # Log atributos do link para diagnóstico
         try:
-            with page.expect_popup(timeout=20000) as _pop_info:
-                page.locator(_sel_link).first.click()  # bot check já passou
-            _pop = _pop_info.value
+            _dbg_href   = page.locator(_link_cert).first.get_attribute("href")    or "N/A"
+            _dbg_target = page.locator(_link_cert).first.get_attribute("target")  or "N/A"
+            _dbg_onclick= page.locator(_link_cert).first.get_attribute("onclick") or "N/A"
+            print(f"  SEFAZ-MT: Emitir href={_dbg_href!r} target={_dbg_target!r} onclick={_dbg_onclick!r}")
+        except Exception:
+            pass
+
+        # Coleta respostas application/pdf via listener de contexto (não bloqueia).
+        # Polling a cada 500ms: verifica PDF real e débitos na página simultaneamente.
+        _DEBITO_RE = re.compile(r"pendenc|devedor|inscrit|irregular|positiv", re.I)
+
+        _pdf_queue = []
+        def _on_pdf_resp(r):
             try:
-                _pop.wait_for_load_state("networkidle", timeout=15000)
+                if r.status == 200 and "pdf" in r.headers.get("content-type", "").lower():
+                    _pdf_queue.append(r)
             except Exception:
                 pass
+
+        _dl_cert = []
+        def _on_dl_cert(d):
+            _dl_cert.append(d)
+            print(f"  SEFAZ-MT: download: {d.suggested_filename!r}")
+
+        context.on("response", _on_pdf_resp)
+        context.on("download", _on_dl_cert)
+
+        try:
+            page.evaluate("clickEmitirNova()")
+            print("  SEFAZ-MT: JS clickEmitirNova() chamado")
+        except Exception as _je:
+            print(f"  SEFAZ-MT: JS retornou ({_je})")
+
+        _real_pdf = None
+        # Polling: 180 ticks × 500ms = 90s máximo
+        for _tick in range(180):
             page.wait_for_timeout(500)
-            _pop.emulate_media(media="print")
-            _pop.pdf(path=caminho, format="A4", print_background=True)
+
+            # Processa respostas PDF acumuladas
+            while _pdf_queue and not _real_pdf:
+                _resp = _pdf_queue.pop(0)
+                try:
+                    _body = _resp.body()
+                    print(f"  SEFAZ-MT: resp pdf: {len(_body)} bytes inicio={_body[:8]!r}")
+                    if _body and len(_body) > 5000 and _body[:4] == b'%PDF':
+                        _real_pdf = _body
+                    else:
+                        _txt = _body.decode("utf-8", errors="ignore")
+                        if _DEBITO_RE.search(_txt):
+                            context.remove_listener("response", _on_pdf_resp)
+                            context.remove_listener("download", _on_dl_cert)
+                            print("  SEFAZ-MT: debitos na resposta — com_debitos")
+                            return "com_debitos"
+                except Exception as _re:
+                    print(f"  SEFAZ-MT: resp.body() erro: {_re}")
+
+            if _real_pdf:
+                break
+
+            # Verifica débitos na página a cada ~2s (ticks pares)
+            if _tick % 4 == 3:
+                try:
+                    if page.get_by_text(_DEBITO_RE, exact=False).first.is_visible(timeout=200):
+                        context.remove_listener("response", _on_pdf_resp)
+                        context.remove_listener("download", _on_dl_cert)
+                        print("  SEFAZ-MT: debitos na pagina — com_debitos")
+                        return "com_debitos"
+                except Exception:
+                    pass
+
+        context.remove_listener("response", _on_pdf_resp)
+        context.remove_listener("download", _on_dl_cert)
+
+        if _dl_cert and not _real_pdf:
             try:
-                _pop.close()
-            except Exception:
-                pass
-            return "ok" if os.path.exists(caminho) and os.path.getsize(caminho) > 3000 else "nao_encontrado"
-        except Exception as e:
-            print(f"  SEFAZ-MT: erro ao capturar popup intermediário: {e}")
-            # Fallback: popup abriu sem expect_popup
-            outras2 = [pg for pg in context.pages if pg != page]
-            if outras2:
-                return "ok" if _capturar_popup_como_pdf(page, context, caminho) else "nao_encontrado"
+                _dl_cert[0].save_as(caminho)
+                if os.path.exists(caminho) and os.path.getsize(caminho) > 5000:
+                    return "ok"
+            except Exception as _de:
+                print(f"  SEFAZ-MT: erro ao salvar download: {_de}")
+
+        if _real_pdf:
+            with open(caminho, "wb") as _f:
+                _f.write(_real_pdf)
+            if os.path.exists(caminho) and os.path.getsize(caminho) > 5000:
+                print(f"  SEFAZ-MT: certidao salva ({os.path.getsize(caminho)} bytes)")
+                return "ok"
+            return "nao_encontrado"
+
+        # Sem PDF real — ultima verificacao de debitos na pagina atual
+        try:
+            if page.get_by_text(_DEBITO_RE, exact=False).first.is_visible(timeout=2000):
+                print("  SEFAZ-MT: debitos detectados — com_debitos")
+                return "com_debitos"
+        except Exception:
+            pass
+        return "nao_encontrado"
 
     # Verifica débitos na página resultante
     try:
@@ -1161,21 +1248,40 @@ def _launch_chrome_cdp(porta=9222, exe=None):
         return None, None
     try:
         tmp_dir = tempfile.mkdtemp(prefix="robo_cdp_")
-        # Copia cookies reais para o perfil CDP
+        # Copia perfil real para o CDP: cookies + localStorage + fingerprint do ThreatMetrix
         src_ud = os.path.join(os.path.expanduser("~"),
                               r"AppData\Local\Google\Chrome\User Data")
         if os.path.isdir(src_ud):
-            try:
-                ls = os.path.join(src_ud, "Local State")
-                if os.path.exists(ls):
-                    shutil.copy2(ls, os.path.join(tmp_dir, "Local State"))
-                ck_src = os.path.join(src_ud, "Default", "Network", "Cookies")
-                if os.path.exists(ck_src):
-                    ck_dst = os.path.join(tmp_dir, "Default", "Network")
-                    os.makedirs(ck_dst, exist_ok=True)
-                    shutil.copy2(ck_src, os.path.join(ck_dst, "Cookies"))
-            except Exception:
-                pass
+            src_def = os.path.join(src_ud, "Default")
+            dst_def = os.path.join(tmp_dir, "Default")
+            os.makedirs(dst_def, exist_ok=True)
+
+            def _cp(rel_src, rel_dst=None):
+                s = os.path.join(src_ud, rel_src)
+                d = os.path.join(tmp_dir, rel_dst or rel_src)
+                if os.path.exists(s):
+                    os.makedirs(os.path.dirname(d), exist_ok=True)
+                    try:
+                        shutil.copy2(s, d)
+                    except Exception:
+                        pass
+
+            def _cpdir(rel_src):
+                s = os.path.join(src_ud, rel_src)
+                d = os.path.join(tmp_dir, rel_src)
+                if os.path.isdir(s):
+                    try:
+                        shutil.copytree(s, d, dirs_exist_ok=True)
+                    except Exception:
+                        pass
+
+            _cp("Local State")                          # chave AES p/ cookies
+            _cp(r"Default\Network\Cookies")             # cookies de sessão
+            _cp(r"Default\Preferences")                 # config browser
+            _cp(r"Default\Web Data")                    # histórico de formulários
+            _cpdir(r"Default\Local Storage")            # localStorage (ThreatMetrix/TSPD)
+            _cpdir(r"Default\Session Storage")          # sessionStorage
+            _cpdir(r"Default\IndexedDB")                # IndexedDB (fingerprint tokens)
         cmd = [
             exe,
             f"--remote-debugging-port={porta}",
@@ -1305,6 +1411,9 @@ with sync_playwright() as p:
         try:
             fn        = BAIXAR_FN[tipo]
             resultado = fn(page, context, doc, caminho_temp)
+            # Pausa anti-rate-limit entre CNPJs do SEFAZ-MT
+            if tipo == "estadual_mt" and i < total:
+                page.wait_for_timeout(4000)
 
             if resultado == "ok":
                 tipo_cert = detectar_tipo_certidao(caminho_temp)
